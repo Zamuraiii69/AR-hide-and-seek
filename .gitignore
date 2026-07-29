@@ -1,0 +1,21 @@
+# dependencies
+node_modules/
+
+# runtime data created by the app
+data/
+
+# local tool and agent state
+graft/
+.claude/
+.codex/
+.gemini/
+.kiro/
+.remember/
+.windsurf/
+
+# environment and OS/editor noise
+.env
+.env.*
+*.log
+Thumbs.db
+.DS_Store

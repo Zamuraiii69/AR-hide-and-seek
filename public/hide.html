@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hide | Meccha Chameleon</title>
+  <script type="importmap">{ "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+    "mindar-image-three": "https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.prod.js"
+  } }</script>
+  <style>
+    * { box-sizing: border-box; } html, body { margin:0; width:100%; height:100%; overflow:hidden; position:fixed; overscroll-behavior:none; background:#090b0c; color:#f3f5f2; font:15px system-ui,sans-serif; }
+    #ar { position:fixed; inset:0; } #hud { position:fixed; inset:0; pointer-events:none; display:flex; flex-direction:column; justify-content:space-between; padding:14px; }
+    .top, .panel { pointer-events:auto; background:rgba(18,23,22,.9); border:1px solid #405047; border-radius:8px; box-shadow:0 5px 18px #0008; }
+    .top { align-self:stretch; display:flex; gap:10px; align-items:center; padding:9px 12px; } #status { flex:1; color:#c9d5ca; } .panel { align-self:center; width:min(520px,100%); padding:12px; display:grid; gap:10px; }
+    button, input, select { pointer-events:auto; font:inherit; } button { border:0; border-radius:6px; min-height:40px; padding:0 13px; background:#d05e3f; color:white; font-weight:700; } button.secondary { background:#324139; } button:disabled { opacity:.5; } .controls { display:flex; gap:8px; flex-wrap:wrap; align-items:center; } .controls button { flex:1; }
+    label { display:grid; grid-template-columns:72px 1fr; align-items:center; gap:9px; color:#c9d5ca; } input[type=range] { width:100%; accent-color:#d05e3f; }
+    .swatches { display:grid; grid-template-columns:auto 1fr; gap:6px 9px; align-items:center; } .swatch-row { display:flex; gap:7px; flex-wrap:wrap; min-height:30px; } .row-label { color:#9fb0a3; font-size:13px; white-space:nowrap; }
+    .swatch { min-height:30px; width:30px; padding:0; border:2px solid #fff8; } .swatch[aria-pressed=true] { outline:2px solid white; } #palette-note { grid-column:1/-1; color:#e0c08f; font-size:13px; }
+    #current-color { width:28px; height:28px; border-radius:50%; border:2px solid #fff8; flex:0 0 auto; } #tool[aria-pressed=true] { background:#d05e3f; outline:2px solid white; }
+    [data-mode=PLACE] .paint-only, [data-mode=PLACE] .review-only, [data-mode=PAINT] .place-only, [data-mode=PAINT] .review-only, [data-mode=REVIEW] .place-only, [data-mode=REVIEW] .paint-only { display:none; }
+    #share { color:#dbf1dd; word-break:break-all; } .spinner { width:16px; height:16px; border:2px solid #fff5; border-top-color:white; border-radius:50%; animation:spin .75s linear infinite; } .hidden { display:none; } @keyframes spin { to { transform:rotate(360deg) } }
+  </style>
+</head>
+<body><div id="ar"></div><div id="hud" data-mode="PLACE">
+  <div class="top"><span id="spinner" class="spinner hidden"></span><span id="status">Preparing marker…</span><button id="start" type="button" disabled>Start camera</button></div>
+  <section class="panel">
+    <div class="place-only controls"><label>Scale <input id="scale" type="range" min="0.08" max="1.2" step="0.01" value="0.30"></label><label>Rotate <input id="rotate" type="range" min="-180" max="180" step="1" value="0"></label><span id="fit"></span><button id="lock" type="button">Lock position</button></div>
+    <div class="paint-only">
+      <div class="swatches">
+        <span class="row-label">สีเด่น</span><div id="palette" class="swatch-row"></div>
+        <span class="row-label" id="zone-label">ตามโซน</span><div id="palette-zone" class="swatch-row"></div>
+        <span class="row-label">ที่ดูดมา</span><div id="palette-picked" class="swatch-row"></div>
+        <span id="palette-note"></span>
+      </div>
+      <div class="controls"><span id="current-color" aria-hidden="true"></span><button id="tool" class="secondary" type="button" aria-pressed="false">ดูดสี</button><label>Brush <input id="brush-size" type="range" min="4" max="52" value="16"></label><label>Edge <select id="brush-edge"><option value="hard">Hard</option><option value="soft">Soft</option></select></label></div>
+      <button id="review" type="button">Review</button>
+    </div>
+    <div class="review-only controls"><button id="peek" class="secondary" type="button">Hide silhouette</button><button id="edit" class="secondary" type="button">Edit paint</button><button id="save" type="button">Save hide</button></div>
+    <div id="share"></div>
+  </section>
+</div><script type="module" src="/js/hide/hideApp.js"></script></body></html>

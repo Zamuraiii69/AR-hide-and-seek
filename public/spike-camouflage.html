@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>Spike B — camouflage อ่านออกจริงไหม</title>
+<style>
+  * { box-sizing:border-box; }
+  html, body { margin:0; padding:0; height:100%; overflow:hidden; position:fixed; inset:0;
+               overscroll-behavior:none; background:#000; color:#e8edf5;
+               font-family:system-ui,-apple-system,sans-serif; -webkit-user-select:none; user-select:none; }
+  #ar-container { position:absolute; inset:0; touch-action:none; }
+
+  #overlay { position:absolute; inset:0; z-index:20; display:flex; flex-direction:column;
+             align-items:center; justify-content:center; gap:18px; padding:28px; text-align:center;
+             background:radial-gradient(circle at 50% 30%,#1d2533,#0b0e14); }
+  #overlay h1 { font-size:1.3rem; margin:0; }
+  #overlay p { max-width:340px; color:#98a4b8; line-height:1.6; margin:0; font-size:.88rem; }
+  #start { font-size:1.1rem; font-weight:600; padding:14px 34px; border:none; border-radius:999px;
+           background:#e23b3b; color:#fff; box-shadow:0 6px 20px rgba(226,59,59,.4); }
+
+  #status { position:absolute; top:10px; left:50%; transform:translateX(-50%); z-index:9;
+            padding:7px 15px; border-radius:999px; background:rgba(0,0,0,.6); font-size:.8rem;
+            display:none; white-space:nowrap; pointer-events:none; }
+  .err { color:#ff8080; }
+
+  /* HUD: container ต้อง pointer-events:none ไม่งั้นจะกลืน gesture ลากทั้งหมด */
+  #hud { position:absolute; left:0; right:0; bottom:0; z-index:9; padding:12px;
+         pointer-events:none; display:none; }
+  #hud > * { pointer-events:auto; }
+  .panel { background:rgba(12,16,24,.86); backdrop-filter:blur(10px); border:1px solid #2a3244;
+           border-radius:14px; padding:12px; }
+  .btnrow { display:flex; gap:8px; margin-bottom:8px; }
+  .btnrow button { flex:1; padding:11px 6px; border:none; border-radius:10px; font-size:.82rem;
+                   font-weight:600; background:#232b3b; color:#dce4f0; }
+  .btnrow button.on { background:#33cc66; color:#06210f; }
+  .btnrow button.primary { background:#e23b3b; color:#fff; }
+  .slider { display:flex; align-items:center; gap:10px; font-size:.75rem; color:#8792a6; }
+  .slider input { flex:1; }
+  .slider b { min-width:44px; text-align:right; color:#dce4f0; font-variant-numeric:tabular-nums; }
+  .hint { font-size:.72rem; color:#6b7585; margin-top:8px; line-height:1.5; }
+</style>
+<!-- three pinned to 0.160.0 — MindAR imports sRGBEncoding, removed in r165. Do not bump. -->
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+  "mindar-image-three": "https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.prod.js"
+} }
+</script>
+</head>
+<body>
+<div id="ar-container"></div>
+<div id="status"></div>
+
+<div id="hud">
+  <div class="panel">
+    <div class="btnrow">
+      <button id="btn-camo" class="primary">พรางสี</button>
+      <button id="btn-flat">สีเฉลี่ย</button>
+      <button id="btn-peek">แสดงตัว</button>
+    </div>
+    <div class="slider">
+      <span>gain</span>
+      <input type="range" id="gain" min="0.60" max="1.40" step="0.01" value="1.00">
+      <b id="gain-val">1.00</b>
+    </div>
+    <div class="hint">
+      ลากนิ้วบนหน้าจอเพื่อย้ายตัว · <b>พรางสี</b> = คัดลอกพิกเซลจากไฟล์ต้นฉบับตรงตำแหน่งนั้นเป๊ะ
+      (ขีดจำกัดบนทางทฤษฎี) · <b>gain</b> จำลองความคลาดเคลื่อนของสีที่กล้องเห็น
+    </div>
+  </div>
+</div>
+
+<div id="overlay">
+  <h1>Spike B — camouflage</h1>
+  <p>
+    ทดสอบว่า plane แบนๆ ที่ระบายด้วยสีจากรูปต้นฉบับ <b>กลืนไปกับ marker จริงไหม</b>
+    เมื่อมองผ่านกล้อง
+  </p>
+  <p style="color:#ffb454">
+    พิมพ์รูป card ของ MindAR ลง <b>กระดาษด้าน</b> (กระดาษมันจะสะท้อนแสงจนพัง)
+    หรือเปิดบนจอ laptop ก็ได้ แต่ผลจะต่างออกไป
+  </p>
+  <button id="start">เริ่ม</button>
+  <p style="font-size:.75rem;color:#6b7585">ต้องการกล้อง + HTTPS</p>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { MindARThree } from 'mindar-image-three';
+
+const CARD = 'https://cdn.jsdelivr.net/gh/hiukim/mind-ar-js@1.2.5/examples/image-tracking/assets/card-example';
+const MIND_URL  = `${CARD}/card.mind`;
+const IMAGE_URL = `${CARD}/card.png`;
+
+const PAINT_RES = 512;
+const MASK_RES  = 512;
+const Z_SILHOUETTE = 0.001;
+const QUAD = 0.30;                 // ขนาด quad เทียบความกว้าง marker (=1.0)
+
+const $ = (id) => document.getElementById(id);
+const statusEl = $('status');
+const setStatus = (t, cls = '') => { statusEl.style.display = 'block'; statusEl.textContent = t; statusEl.className = cls; };
+
+// ---------------------------------------------------------------------------
+// mask: วาดรูปคนขาวบนพื้นดำ (ของจริงจะเป็นไฟล์ PNG — spike นี้วาดเอาเลย)
+// alphaMap ของ three อ่าน channel เขียว ไม่ใช่ alpha → พื้นต้องดำทึบ
+// ---------------------------------------------------------------------------
+function buildMaskCanvas(res) {
+  const c = document.createElement('canvas');
+  c.width = c.height = res;
+  const x = c.getContext('2d', { willReadFrequently: true });
+  const k = res / 512;
+
+  x.fillStyle = '#000'; x.fillRect(0, 0, res, res);
+  x.filter = 'blur(1.5px)';                       // feather ~ขอบนุ่ม กัน staircase
+  x.strokeStyle = x.fillStyle = '#fff';
+  x.lineCap = x.lineJoin = 'round';
+
+  x.beginPath(); x.arc(256 * k, 78 * k, 36 * k, 0, Math.PI * 2); x.fill();   // หัว
+  const seg = (x0, y0, x1, y1, w) => {
+    x.lineWidth = w * k;
+    x.beginPath(); x.moveTo(x0 * k, y0 * k); x.lineTo(x1 * k, y1 * k); x.stroke();
+  };
+  seg(256, 114, 256, 286, 64);      // ลำตัว
+  seg(250, 146, 190, 262, 26);      // แขนซ้าย
+  seg(262, 146, 322, 262, 26);      // แขนขวา
+  seg(240, 280, 214, 452, 32);      // ขาซ้าย
+  seg(272, 280, 298, 452, 32);      // ขาขวา
+  x.filter = 'none';
+  return c;
+}
+
+/** อ่าน green channel + หา tight bbox ของพิกเซลตัวคน (ใช้กับ hit test และ drag clamp ทีหลัง) */
+function decodeMask(canvas) {
+  const res = canvas.width;
+  const px = canvas.getContext('2d').getImageData(0, 0, res, res).data;
+  const a = new Uint8Array(res * res);
+  let x0 = res, y0 = res, x1 = -1, y1 = -1;
+  for (let y = 0; y < res; y++) for (let x = 0; x < res; x++) {
+    const v = px[(y * res + x) * 4 + 1];          // GREEN — ตรงกับ alphamap_fragment
+    a[y * res + x] = v;
+    if (v > 127) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+  }
+  return {
+    res, data: a,
+    // uv convention ของ three (v=0 อยู่ล่าง)
+    bbox: { u0: x0 / res, u1: (x1 + 1) / res, v0: 1 - (y1 + 1) / res, v1: 1 - y0 / res },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// anchorPick: ray จากนิ้ว × ระนาบ z=0 ใน anchor space
+// อย่าใช้ THREE.Raycaster — มันไม่สนใจ visible:false และ anchor.group
+// มี matrixAutoUpdate=false (ต้องบังคับ update เอง)
+// ---------------------------------------------------------------------------
+const _inv = new THREE.Matrix4(), _o = new THREE.Vector3(), _d = new THREE.Vector3();
+const _ndc = new THREE.Vector2(), _hit = new THREE.Vector3(), _grab = new THREE.Vector2();
+
+function screenToNDC(ev, el, out) {
+  const r = el.getBoundingClientRect();
+  out.x =  ((ev.clientX - r.left) / r.width)  * 2 - 1;
+  out.y = -((ev.clientY - r.top)  / r.height) * 2 + 1;
+  return out;
+}
+
+function pickAnchorPlane(ndc, camera, group, out) {
+  group.updateWorldMatrix(true, false);
+  _inv.copy(group.matrixWorld).invert();
+  _o.setFromMatrixPosition(camera.matrixWorld);
+  _d.set(ndc.x, ndc.y, 0.5).unproject(camera).sub(_o).normalize();
+  _o.applyMatrix4(_inv);
+  _d.transformDirection(_inv);
+  if (Math.abs(_d.z) < 1e-6) return null;
+  const t = -_o.z / _d.z;
+  if (t <= 0) return null;
+  return out.copy(_d).multiplyScalar(t).add(_o);
+}
+
+// ---------------------------------------------------------------------------
+const loadImage = (url) => new Promise((res, rej) => {
+  const i = new Image();
+  i.crossOrigin = 'anonymous';           // ต้องมี ไม่งั้น canvas โดน taint อ่านพิกเซลไม่ได้
+  i.onload = () => res(i); i.onerror = rej; i.src = url;
+});
+
+let state = null;
+
+async function boot() {
+  setStatus('กำลังโหลดรูป marker…');
+  const markerImg = await loadImage(IMAGE_URL);
+  const aspect = markerImg.naturalHeight / markerImg.naturalWidth;
+
+  const maskCanvas = buildMaskCanvas(MASK_RES);
+  const mask = decodeMask(maskCanvas);
+
+  const maskTexture = new THREE.CanvasTexture(maskCanvas);
+  maskTexture.generateMipmaps = false;
+  maskTexture.minFilter = maskTexture.magFilter = THREE.LinearFilter;
+  // ห้ามตั้ง colorSpace บน mask — จะทำให้ EOTF ไปเลื่อนเส้นตัดขอบ
+
+  const paintCanvas = document.createElement('canvas');
+  paintCanvas.width = paintCanvas.height = PAINT_RES;
+  const pctx = paintCanvas.getContext('2d');
+  pctx.fillStyle = '#8a7a5e'; pctx.fillRect(0, 0, PAINT_RES, PAINT_RES);   // ทึบ 100% เสมอ
+
+  const paintTexture = new THREE.CanvasTexture(paintCanvas);
+  paintTexture.colorSpace = THREE.SRGBColorSpace;    // default คือ NoColorSpace — ต้องตั้งเอง
+  paintTexture.generateMipmaps = false;
+  paintTexture.minFilter = paintTexture.magFilter = THREE.LinearFilter;
+
+  const material = new THREE.MeshBasicMaterial({
+    map: paintTexture, alphaMap: maskTexture, color: 0xffffff,
+    transparent: true, alphaTest: 0.5,
+    depthTest: false, depthWrite: false,          // marker อยู่ใน <video> หลัง canvas → ไม่มี z-fight
+    side: THREE.DoubleSide, toneMapped: false, fog: false,
+  });
+
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), material);
+  mesh.scale.set(QUAD, QUAD, 1);
+  mesh.position.set(0, 0, Z_SILHOUETTE);
+  mesh.renderOrder = 10;
+  mesh.frustumCulled = false;
+
+  const mindarThree = new MindARThree({
+    container: $('ar-container'),
+    imageTargetSrc: MIND_URL,
+    filterMinCF: 0.0001, filterBeta: 0.01, missTolerance: 5, warmupTolerance: 5,
+  });
+  const anchor = mindarThree.addAnchor(0);
+  anchor.group.add(mesh);
+
+  let visible = false;
+  anchor.onTargetFound = () => { visible = true; };
+  anchor.onTargetLost  = () => { visible = false; };
+
+  state = { mindarThree, anchor, mesh, material, markerImg, aspect,
+            paintCanvas, pctx, paintTexture, mask,
+            get visible() { return visible; } };
+
+  // เติมสีพรางครั้งแรก
+  camouflage();
+  setStatus('พร้อม — กดเริ่ม');
+}
+
+/**
+ * คัดลอกพื้นที่ของรูป marker ที่อยู่ "ใต้" quad มาลงบน paint canvas ตรงๆ
+ * quad เป็น axis-aligned และ mapping จาก anchor space → uv เป็นเชิงเส้น
+ * → เป็นแค่ drawImage crop เดียว ไม่ต้องวนพิกเซล
+ */
+function camouflage() {
+  const { mesh, markerImg, aspect, pctx, paintTexture } = state;
+  const W = markerImg.naturalWidth, H = markerImg.naturalHeight;
+  const w = mesh.scale.x, h = mesh.scale.y;
+
+  // uv ของขอบ quad:  u = x + 0.5   ,   v = y/aspect + 0.5
+  const u0 = (mesh.position.x - w / 2) + 0.5;
+  const v1 = (mesh.position.y + h / 2) / aspect + 0.5;   // ขอบบน (v มาก = y ภาพน้อย)
+
+  pctx.drawImage(markerImg,
+    u0 * W, (1 - v1) * H, w * W, (h / aspect) * H,       // source rect ในพิกเซลของรูป
+    0, 0, PAINT_RES, PAINT_RES);
+  paintTexture.needsUpdate = true;
+}
+
+/** สีเฉลี่ยทั้ง footprint — จำลอง "จานสี 12 สี" ที่เราไม่ได้เลือก */
+function flatFill() {
+  const { pctx, paintTexture } = state;
+  const d = pctx.getImageData(0, 0, PAINT_RES, PAINT_RES).data;
+  let r = 0, g = 0, b = 0, n = 0;
+  for (let i = 0; i < d.length; i += 64) { r += d[i]; g += d[i + 1]; b += d[i + 2]; n++; }
+  pctx.fillStyle = `rgb(${Math.round(r / n)},${Math.round(g / n)},${Math.round(b / n)})`;
+  pctx.fillRect(0, 0, PAINT_RES, PAINT_RES);
+  paintTexture.needsUpdate = true;
+}
+
+// --- ควบคุม ----------------------------------------------------------------
+$('btn-camo').addEventListener('click', camouflage);
+$('btn-flat').addEventListener('click', flatFill);
+
+let peek = false;
+$('btn-peek').addEventListener('click', () => {
+  peek = !peek;
+  $('btn-peek').classList.toggle('on', peek);
+  $('btn-peek').textContent = peek ? 'กำลังแสดง' : 'แสดงตัว';
+  // ขอบแดงเรืองแสงเพื่อดูว่าตัวอยู่ตรงไหน โดยไม่แตะ texture ที่ระบายไว้
+  state.material.color.setHex(peek ? 0xff5555 : 0xffffff);
+  if (!peek) applyGain();
+});
+
+function applyGain() {
+  if (peek) return;
+  const g = parseFloat($('gain').value);
+  $('gain-val').textContent = g.toFixed(2);
+  state.material.color.setRGB(g, g, g, THREE.LinearSRGBColorSpace);
+}
+$('gain').addEventListener('input', applyGain);
+
+// --- เริ่ม AR ---------------------------------------------------------------
+$('start').addEventListener('click', async () => {
+  if (!window.isSecureContext) { setStatus('กล้องต้องใช้ HTTPS — เปิดผ่าน ngrok', 'err'); return; }
+  const { mindarThree } = state;
+  const { renderer, scene, camera } = mindarThree;
+
+  try {
+    setStatus('กำลังเปิดกล้อง…');
+    await mindarThree.start();
+    $('overlay').style.display = 'none';
+    $('hud').style.display = 'block';
+
+    // fix จอดำ (ยกมาจาก PoC เดิม)
+    renderer.setClearColor(0x000000, 0);
+    renderer.setClearAlpha(0);
+    scene.background = null;
+    if (mindarThree.video) mindarThree.video.style.zIndex = '1';
+    renderer.domElement.style.zIndex = '2';
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.domElement.style.touchAction = 'none';
+    // CSS3DRenderer ของ MindAR อยู่ container เดียวกัน และจะดูด pointer event ไปหมด
+    if (mindarThree.cssRenderer) mindarThree.cssRenderer.domElement.style.pointerEvents = 'none';
+
+    attachDrag(renderer.domElement, camera);
+
+    renderer.setAnimationLoop(() => {
+      setStatus(state.visible ? 'TRACKING ✓ — ลากเพื่อย้าย แล้วกด "พรางสี"'
+                              : 'ส่องกล้องไปที่รูป card…');
+      renderer.render(scene, camera);
+    });
+  } catch (err) {
+    console.error(err);
+    setStatus('เปิดกล้องไม่ได้: ' + (err && err.message || err), 'err');
+  }
+});
+
+function attachDrag(el, camera) {
+  let active = null, dragging = false;
+  el.style.touchAction = 'none';
+
+  el.addEventListener('pointerdown', (e) => {
+    if (!e.isPrimary) return;
+    if (!state.visible) return;             // ★ Raycaster/pick ไม่รู้ว่า target หลุด — ต้องกันเอง
+    const p = pickAnchorPlane(screenToNDC(e, el, _ndc), camera, state.anchor.group, _hit);
+    if (!p) return;
+    active = e.pointerId; dragging = true;
+    el.setPointerCapture(e.pointerId);
+    _grab.set(state.mesh.position.x - p.x, state.mesh.position.y - p.y);
+  });
+
+  el.addEventListener('pointermove', (e) => {
+    if (e.pointerId !== active || !dragging || !state.visible) return;
+    for (const s of (e.getCoalescedEvents ? e.getCoalescedEvents() : [e])) {
+      const p = pickAnchorPlane(screenToNDC(s, el, _ndc), camera, state.anchor.group, _hit);
+      if (!p) continue;
+      state.mesh.position.x = p.x + _grab.x;
+      state.mesh.position.y = p.y + _grab.y;
+      clampToMarker();
+    }
+  });
+
+  const up = (e) => { if (e.pointerId !== active) return; active = null; dragging = false; camouflage(); };
+  el.addEventListener('pointerup', up);
+  el.addEventListener('pointercancel', up);
+  el.addEventListener('lostpointercapture', up);
+}
+
+/** clamp ด้วย tight bbox ของ "ตัวคน" ไม่ใช่ขอบ quad — ไม่งั้นซ่อนชิดขอบรูปไม่ได้ */
+function clampToMarker() {
+  const { mesh, aspect, mask } = state;
+  const w = mesh.scale.x, h = mesh.scale.y, b = mask.bbox;
+  const left = (b.u0 - 0.5) * w, right = (b.u1 - 0.5) * w;
+  const bottom = (b.v0 - 0.5) * h, top = (b.v1 - 0.5) * h;
+
+  const minX = -0.5 - left,          maxX = 0.5 - right;
+  const minY = -aspect / 2 - bottom, maxY = aspect / 2 - top;
+
+  // ถ้าตัวใหญ่กว่า marker ช่วง clamp จะกลับด้าน → จับกลางแทนที่จะได้ค่าเพี้ยน
+  mesh.position.x = minX <= maxX ? Math.min(maxX, Math.max(minX, mesh.position.x)) : 0;
+  mesh.position.y = minY <= maxY ? Math.min(maxY, Math.max(minY, mesh.position.y)) : 0;
+}
+
+boot().catch((err) => { console.error(err); setStatus('โหลดไม่สำเร็จ: ' + err.message, 'err'); });
+</script>
+</body>
+</html>

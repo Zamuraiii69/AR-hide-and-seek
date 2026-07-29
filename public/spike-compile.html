@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>Spike A — in-browser .mind compile</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin:0; padding:0; height:100%; overflow:hidden; overscroll-behavior:none;
+               background:#0b0e14; color:#e8edf5; font-family:system-ui,-apple-system,sans-serif; }
+  #ar-container { position:absolute; inset:0; }
+  #panel { position:absolute; inset:0; z-index:10; overflow-y:auto; padding:20px;
+           background:linear-gradient(#12161f,#0b0e14); }
+  h1 { font-size:1.2rem; margin:0 0 4px; }
+  .sub { color:#8792a6; font-size:.82rem; margin:0 0 18px; line-height:1.5; }
+  .card { background:#171c27; border:1px solid #232a38; border-radius:12px; padding:14px; margin-bottom:12px; }
+  label.file { display:block; padding:16px; border:2px dashed #39445a; border-radius:12px;
+               text-align:center; color:#9fb0cc; cursor:pointer; }
+  label.file input { display:none; }
+  button { font-size:1rem; font-weight:600; padding:12px 24px; border:none; border-radius:999px;
+           background:#e23b3b; color:#fff; cursor:pointer; width:100%; }
+  button:disabled { background:#2b3242; color:#6b7585; }
+  .bar { height:8px; background:#232a38; border-radius:99px; overflow:hidden; margin-top:10px; }
+  .bar > i { display:block; height:100%; width:0%; background:#33cc66; transition:width .15s; }
+  table { width:100%; border-collapse:collapse; font-size:.84rem; }
+  td { padding:5px 0; border-bottom:1px solid #232a38; }
+  td:first-child { color:#8792a6; }
+  td:last-child { text-align:right; font-variant-numeric:tabular-nums; }
+  .big { font-size:1.5rem; font-weight:700; color:#33cc66; }
+  .warn { color:#ffb454; } .err { color:#ff8080; }
+  #status { position:absolute; top:12px; left:50%; transform:translateX(-50%); z-index:9;
+            padding:8px 16px; border-radius:999px; background:rgba(0,0,0,.6); font-size:.85rem;
+            display:none; white-space:nowrap; }
+  #back { position:absolute; bottom:20px; left:50%; transform:translateX(-50%); z-index:9;
+          width:auto; padding:10px 22px; background:rgba(0,0,0,.6); display:none; }
+</style>
+<!-- three pinned to 0.160.0 — MindAR imports sRGBEncoding, removed in r165. Do not bump. -->
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+  "mindar-image-three": "https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.prod.js"
+} }
+</script>
+</head>
+<body>
+<div id="ar-container"></div>
+<div id="status"></div>
+<button id="back">← กลับไปเลือกรูปใหม่</button>
+
+<div id="panel">
+  <h1>Spike A — compile <code>.mind</code> ในเบราว์เซอร์</h1>
+  <p class="sub">
+    วัดว่า <b>เครื่องนี้</b> ใช้เวลา compile นานแค่ไหน และค้าง/แครชไหม<br>
+    MindAR ไม่ downscale ให้ และ feature detection รันบน main thread ผ่าน TFJS
+    → หน้านี้ downscale ให้ก่อนเสมอ
+  </p>
+
+  <div class="card">
+    <label class="file">
+      <input type="file" id="file" accept="image/*">
+      📷 แตะเพื่อเลือกรูป marker
+      <div style="font-size:.75rem;color:#6b7585;margin-top:6px">
+        ใช้รูปที่มีรายละเอียดเยอะ (โปสเตอร์/ภาพถ่าย) — อย่าใช้ QR หรือสีเรียบ
+      </div>
+    </label>
+  </div>
+
+  <div class="card" id="progress-card" style="display:none">
+    <div id="phase">กำลังเตรียม…</div>
+    <div class="bar"><i id="bar"></i></div>
+  </div>
+
+  <div class="card" id="result-card" style="display:none">
+    <div class="big" id="headline">—</div>
+    <table id="stats"></table>
+  </div>
+
+  <button id="start" disabled>เริ่ม AR เพื่อทดสอบ tracking</button>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { MindARThree } from 'mindar-image-three';
+
+const $ = (id) => document.getElementById(id);
+const panel = $('panel'), statusEl = $('status');
+
+const MAX_DIM = 1024;   // compiler ไม่ย่อให้ และ detect เป็น O(pixels) บน main thread
+const MIN_DIM = 512;    // tracking pass ย่อลงไปถึง min-dimension 256/128 อยู่แล้ว
+
+let mindBlobUrl = null, mindarThree = null, aspect = 1;
+
+function setStatus(t, cls = '') { statusEl.style.display = 'block'; statusEl.textContent = t; statusEl.className = cls; }
+function row(k, v, cls = '') { return `<tr><td>${k}</td><td class="${cls}">${v}</td></tr>`; }
+
+/** ย่อรูปให้ด้านยาวสุด <= MAX_DIM แต่ด้านสั้นสุดไม่ต่ำกว่า MIN_DIM ถ้าทำได้ */
+async function downscale(file) {
+  // ★ ใช้ createImageBitmap ไม่ใช่ Image + URL.createObjectURL:
+  //   รับ File/Blob ตรงๆ, decode นอก main thread, และเลี่ยง blob: URL ทั้งหมด
+  //   (ทดสอบแล้วพบว่า img.decode() บน blob: URL ค้างไม่คืนค่าในบางเบราว์เซอร์)
+  const bmp = await createImageBitmap(file);
+  const ow = bmp.width, oh = bmp.height;
+
+  let scale = Math.min(1, MAX_DIM / Math.max(ow, oh));
+  if (Math.min(ow, oh) * scale < MIN_DIM) scale = Math.min(1, MIN_DIM / Math.min(ow, oh));
+
+  const w = Math.max(1, Math.round(ow * scale)), h = Math.max(1, Math.round(oh * scale));
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  c.getContext('2d').drawImage(bmp, 0, 0, w, h);
+  bmp.close();
+
+  // compileImageTargets คาดหวัง HTMLImageElement — แปลงกลับผ่าน data: URL (decode ได้ปกติ)
+  const out = new Image();
+  out.src = c.toDataURL('image/png');
+  await out.decode();
+  return { img: out, ow, oh, w, h };
+}
+
+/**
+ * รูปสังเคราะห์ที่มี feature พอให้ compiler เดินครบ path — ใช้อุ่น TFJS เท่านั้น
+ * ใช้ขนาด MIN_DIM เท่ากับ path จริง เพราะ tracking pass ย่อ pyramid ลงไปถึง 256/128
+ * ถ้าอินพุตเล็กกว่านั้น level ท้ายๆ จะกลายเป็น degenerate — เผื่อ margin ไว้ดีกว่า
+ */
+let _warmupImg = null;
+async function warmupImage() {
+  if (_warmupImg) return _warmupImg;
+  const D = MIN_DIM;
+  const c = document.createElement('canvas');
+  c.width = c.height = D;
+  const x = c.getContext('2d');
+  x.fillStyle = '#fff'; x.fillRect(0, 0, D, D);
+  let s = 12345; const rnd = () => (s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+  for (let i = 0; i < 180; i++) {
+    x.fillStyle = `hsl(${rnd() * 360 | 0} 70% ${20 + rnd() * 60 | 0}%)`;
+    x.beginPath(); x.arc(rnd() * D, rnd() * D, D * 0.012 + rnd() * D * 0.05, 0, 6.283); x.fill();
+  }
+  _warmupImg = new Image();
+  _warmupImg.src = c.toDataURL('image/png');
+  await _warmupImg.decode();
+  return _warmupImg;
+}
+
+$('file').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  $('progress-card').style.display = 'block';
+  $('result-card').style.display = 'none';
+  $('start').disabled = true;
+  $('bar').style.width = '0%';
+  $('phase').textContent = 'กำลังย่อรูป…';
+
+  try {
+    const t0 = performance.now();
+    const { img, ow, oh, w, h } = await downscale(file);
+    const tDown = performance.now() - t0;
+    aspect = h / w;
+
+    // mindar-image.prod.js เป็น ES module และตั้ง global เป็น MINDAR.IMAGE (ไม่ใช่ MINDAR)
+    const mod = await import('https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image.prod.js');
+    const Compiler = mod.Compiler ?? window.MINDAR?.IMAGE?.Compiler;
+    if (!Compiler) throw new Error('หา Compiler ไม่เจอ — โครงสร้าง export ของ mind-ar เปลี่ยนไป');
+
+    // วัดผลบน desktop พบว่า compile ครั้งแรกช้ากว่าครั้งถัดไป 3 เท่า แม้รูปจะเล็กกว่า
+    // → ต้นทุนจริงคือการ init TFJS ครั้งเดียว ไม่ใช่จำนวนพิกเซล
+    // แยกวัดสองส่วน เพราะแก้คนละวิธี (warmup ซ่อนได้ตอนโหลดหน้า / compile ซ่อนไม่ได้)
+    $('phase').textContent = 'อุ่นเครื่อง TFJS…';
+    await new Promise(r => setTimeout(r, 50));
+    const tw = performance.now();
+    await new Compiler().compileImageTargets([await warmupImage()], () => {});
+    const tWarmup = performance.now() - tw;
+
+    $('phase').textContent = 'กำลัง compile (main thread — หน้าจออาจไม่ตอบสนอง)…';
+    await new Promise(r => setTimeout(r, 50));   // ให้เบราว์เซอร์วาด UI ก่อนบล็อค
+
+    const t1 = performance.now();
+    const compiler = new Compiler();
+    await compiler.compileImageTargets([img], (pct) => {
+      $('bar').style.width = `${pct}%`;
+      $('phase').textContent = `กำลัง compile… ${pct.toFixed(0)}%`;
+    });
+    const tCompile = performance.now() - t1;
+
+    // exportData() คืน Uint8Array ที่เป็น view บน shared buffer ที่ใหญ่เกินจริง
+    // ต้องห่อด้วย Blob (คัดลอกตาม byteLength) — ห้ามใช้ bytes.buffer เด็ดขาด
+    const bytes = await compiler.exportData();
+    if (mindBlobUrl) URL.revokeObjectURL(mindBlobUrl);
+    mindBlobUrl = URL.createObjectURL(new Blob([bytes]));
+
+    const tTotal = performance.now() - t0;
+    // ตัดสินจาก warmup+compile รวม — นั่นคือสิ่งที่ผู้ใช้เจอจริงตอนอัปโหลดครั้งแรก
+    const tFelt = tWarmup + tCompile;
+    const slow = tFelt > 25000, mid = tFelt > 10000;
+
+    $('progress-card').style.display = 'none';
+    $('result-card').style.display = 'block';
+    const waste = bytes.buffer.byteLength - bytes.byteLength;
+    $('headline').textContent = `${(tFelt / 1000).toFixed(1)} วินาที`;
+    $('headline').className = 'big ' + (slow ? 'err' : mid ? 'warn' : '');
+    $('stats').innerHTML =
+      row('รูปต้นฉบับ', `${ow} × ${oh}`) +
+      row('หลังย่อ', `${w} × ${h}`) +
+      row('เวลาย่อรูป', `${tDown.toFixed(0)} ms`) +
+      row('อุ่นเครื่อง TFJS', `${tWarmup.toFixed(0)} ms`) +
+      row('compile จริง', `${tCompile.toFixed(0)} ms`) +
+      row('ที่ผู้ใช้รู้สึก', `${tFelt.toFixed(0)} ms`, slow ? 'err' : mid ? 'warn' : '') +
+      row('รวมทั้งหมด', `${tTotal.toFixed(0)} ms`) +
+      row('ขนาด .mind', `${(bytes.byteLength / 1024).toFixed(0)} KB`) +
+      row('ขยะท้าย buffer', `${(waste / 1024).toFixed(0)} KB`, waste > 0 ? 'warn' : '') +
+      row('เครื่อง', `${navigator.hardwareConcurrency || '?'} core`) +
+      row('ผลตัดสิน', slow ? 'ช้าเกินไป → ย้าย upload ไป desktop'
+                     : mid ? 'พอรับได้ ถ้าอุ่นเครื่องล่วงหน้าตอนโหลดหน้า'
+                           : 'ผ่าน ✓', slow ? 'err' : mid ? 'warn' : '');
+
+    $('start').disabled = false;
+  } catch (err) {
+    console.error(err);
+    $('progress-card').style.display = 'none';
+    $('result-card').style.display = 'block';
+    $('headline').textContent = 'ล้มเหลว';
+    $('headline').className = 'big err';
+    $('stats').innerHTML = row('error', String(err && err.message || err), 'err');
+  }
+});
+
+$('start').addEventListener('click', async () => {
+  if (!window.isSecureContext) { alert('กล้องต้องใช้ HTTPS — เปิดผ่าน ngrok'); return; }
+  panel.style.display = 'none';
+  $('back').style.display = 'block';
+  setStatus('กำลังเปิดกล้อง…');
+
+  mindarThree = new MindARThree({
+    container: $('ar-container'),
+    imageTargetSrc: mindBlobUrl,        // blob: URL ใช้ได้เหมือน URL ปกติ
+    filterMinCF: 0.0001, filterBeta: 0.01, missTolerance: 5, warmupTolerance: 5,
+  });
+  const { renderer, scene, camera } = mindarThree;
+  const anchor = mindarThree.addAnchor(0);
+
+  // กรอบเขียวทาบขอบรูป — ยืนยันทั้ง tracking และ coordinate system
+  // (กว้าง 1.0 unit, สูง = aspect, จุดกึ่งกลางรูป = origin)
+  const frame = new THREE.Mesh(
+    new THREE.PlaneGeometry(1, aspect),
+    new THREE.MeshBasicMaterial({ color: 0x33cc66, transparent: true, opacity: 0.25,
+                                  depthTest: false, side: THREE.DoubleSide })
+  );
+  frame.renderOrder = 10;
+  anchor.group.add(frame);
+
+  let found = false, firstFoundAt = null;
+  const tStart = performance.now();
+  anchor.onTargetFound = () => {
+    found = true;
+    if (firstFoundAt === null) firstFoundAt = performance.now() - tStart;
+  };
+  anchor.onTargetLost = () => { found = false; };
+
+  try {
+    await mindarThree.start();
+
+    // fix จอดำ (ยกมาจาก PoC เดิม): ทำ canvas ให้โปร่งใสและวาง video ไว้ข้างหลัง
+    renderer.setClearColor(0x000000, 0);
+    renderer.setClearAlpha(0);
+    scene.background = null;
+    if (mindarThree.video) mindarThree.video.style.zIndex = '1';
+    renderer.domElement.style.zIndex = '2';
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));   // ประหยัด memory บน iOS
+
+    renderer.setAnimationLoop(() => {
+      setStatus(found
+        ? `TRACKING ✓ ${firstFoundAt ? `(เจอครั้งแรกใน ${(firstFoundAt / 1000).toFixed(1)}s)` : ''}`
+        : 'ส่องกล้องไปที่รูป marker…');
+      renderer.render(scene, camera);
+    });
+  } catch (err) {
+    console.error(err);
+    setStatus('เปิดกล้องไม่ได้: ' + (err && err.message || err), 'err');
+  }
+});
+
+$('back').addEventListener('click', async () => {
+  if (mindarThree) { mindarThree.renderer.setAnimationLoop(null); await mindarThree.stop(); mindarThree = null; }
+  $('back').style.display = 'none';
+  statusEl.style.display = 'none';
+  panel.style.display = 'block';
+});
+</script>
+</body>
+</html>

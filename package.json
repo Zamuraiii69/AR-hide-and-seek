@@ -1,0 +1,16 @@
+{
+  "name": "meccha-chameleon-poc",
+  "version": "1.0.0",
+  "description": "Meccha Chameleon - Web AR hide & seek PoC (MindAR + three.js, async via node:sqlite)",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}

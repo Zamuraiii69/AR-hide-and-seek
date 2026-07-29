@@ -1,0 +1,4 @@
+{
+  "//": "Browser ESM lives here. Node needs this to import the same files for unit checks (tools/check-*.mjs) instead of a parallel test copy that can drift.",
+  "type": "module"
+}

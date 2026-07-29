@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Meccha Chameleon</title>
+<style>
+  * { box-sizing: border-box; }
+  :root {
+    color-scheme: dark;
+    --bg: #101114;
+    --panel: #181a1f;
+    --line: #2b2f37;
+    --text: #edf0f4;
+    --muted: #9aa3af;
+    --accent: #e5484d;
+    --ok: #42c26e;
+  }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  main {
+    width: min(960px, 100%);
+    margin: 0 auto;
+    padding: 24px;
+  }
+  header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 18px;
+    margin-bottom: 24px;
+  }
+  h1 {
+    margin: 0 0 6px;
+    font-size: clamp(1.6rem, 5vw, 2.5rem);
+    line-height: 1.05;
+  }
+  p {
+    margin: 0;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+  a.button, button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 42px;
+    padding: 0 16px;
+    border: 0;
+    border-radius: 8px;
+    background: var(--accent);
+    color: white;
+    font-weight: 700;
+    text-decoration: none;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .secondary {
+    background: #2a303a;
+    color: var(--text);
+  }
+  .toolbar {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    align-items: center;
+    margin-bottom: 18px;
+  }
+  .notice {
+    padding: 12px 14px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #151820;
+    color: var(--muted);
+    font-size: .92rem;
+    margin-bottom: 18px;
+  }
+  #markers {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 14px;
+  }
+  .card {
+    min-height: 270px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--panel);
+    display: flex;
+    flex-direction: column;
+  }
+  .thumb {
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    background: #0b0d10;
+    object-fit: cover;
+    border-bottom: 1px solid var(--line);
+  }
+  .empty-thumb {
+    display: grid;
+    place-items: center;
+    color: #6f7784;
+    font-size: .86rem;
+  }
+  .body {
+    padding: 13px;
+    display: grid;
+    gap: 10px;
+    flex: 1;
+  }
+  .name {
+    margin: 0;
+    font-size: 1rem;
+    line-height: 1.25;
+  }
+  .meta {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    color: var(--muted);
+    font-size: .84rem;
+  }
+  .status {
+    color: var(--ok);
+    font-weight: 700;
+  }
+  .status.pending {
+    color: #ffb454;
+  }
+  .disabled {
+    pointer-events: none;
+    opacity: .55;
+    background: #2a303a !important;
+  }
+  .message {
+    border: 1px dashed var(--line);
+    border-radius: 8px;
+    padding: 22px;
+    color: var(--muted);
+  }
+  @media (max-width: 620px) {
+    main { padding: 18px; }
+    header { display: block; }
+    header .button { margin-top: 16px; width: 100%; }
+    .toolbar a, .toolbar button { flex: 1; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1>Meccha Chameleon</h1>
+      <p>เลือก marker เพื่อซ่อนตัวพรางสีบนรูปเดียวกัน</p>
+    </div>
+    <a class="button" href="/upload.html">Upload marker</a>
+  </header>
+
+  <div class="notice">หน้า upload ชั่วคราวยังเป็น Spike A และควรทำบน desktop; Phase 6 จะเปลี่ยนเป็น flow upload จริง</div>
+
+  <div class="toolbar">
+    <button id="refresh" class="secondary" type="button">Refresh</button>
+  </div>
+
+  <section id="markers" aria-live="polite">
+    <div class="message">Loading markers...</div>
+  </section>
+</main>
+
+<script type="module">
+const markersEl = document.getElementById('markers');
+const refreshBtn = document.getElementById('refresh');
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, (ch) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[ch]));
+}
+
+function markerCard(marker) {
+  const ready = marker.status === 'ready';
+  const img = marker.imageUrl
+    ? `<img class="thumb" src="${marker.imageUrl}" alt="">`
+    : '<div class="thumb empty-thumb">No image</div>';
+  const action = ready
+    ? `<a class="button" href="/hide.html?marker=${marker.id}">Hide</a>`
+    : '<a class="button disabled" aria-disabled="true">Pending</a>';
+  return `
+    <article class="card">
+      ${img}
+      <div class="body">
+        <h2 class="name">${escapeHtml(marker.name)}</h2>
+        <div class="meta">
+          <span class="status ${ready ? '' : 'pending'}">${escapeHtml(marker.status)}</span>
+          <span>${Number(marker.hideCount || 0)} hides</span>
+        </div>
+        ${action}
+      </div>
+    </article>`;
+}
+
+async function loadMarkers() {
+  markersEl.innerHTML = '<div class="message">Loading markers...</div>';
+  try {
+    const res = await fetch('/api/markers');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const markers = await res.json();
+    markersEl.innerHTML = markers.length
+      ? markers.map(markerCard).join('')
+      : '<div class="message">No markers yet. Upload a feature-rich image first.</div>';
+  } catch (err) {
+    markersEl.innerHTML = `<div class="message">Failed to load markers: ${escapeHtml(err.message || err)}</div>`;
+  }
+}
+
+refreshBtn.addEventListener('click', loadMarkers);
+loadMarkers();
+</script>
+</body>
+</html>
