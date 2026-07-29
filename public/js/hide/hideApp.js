@@ -32,6 +32,7 @@ const SILHOUETTE_URL = '/assets/silhouettes/human_a.png';
 const ZONE_GRID = 4;              // 4×4 zones — the row that actually helps
 const PICKED_MAX = 6;             // most-recent-first, enough to work from
 const ASPECT_TOLERANCE = 0.01;    // db vs image aspect: wider than this is a bug
+const START_TIMEOUT_MS = 15000;
 
 const params = new URLSearchParams(location.search);
 const markerId = Number(params.get('marker'));
@@ -70,10 +71,23 @@ function setState(mode) {
   setStatus(STATUS[mode] ?? '');
 }
 
+function startWithTimeout(session) {
+  return Promise.race([
+    session.start(),
+    new Promise((_, reject) => {
+      window.setTimeout(() => reject(new Error(
+        'AR start timed out. Re-upload a valid compiled .mind target and try again.',
+      )), START_TIMEOUT_MS);
+    }),
+  ]);
+}
+
 async function boot() {
   if (!Number.isInteger(markerId) || markerId < 1) throw new Error('A marker id is required.');
   const marker = await getJSON(`/api/markers/${markerId}`);
-  if (marker.status !== 'ready' || !marker.mindUrl) throw new Error('This marker is not ready.');
+  if (marker.status !== 'ready' || !marker.mindUrl) {
+    throw new Error(marker.targetError || 'This marker is not ready.');
+  }
 
   // The sampler is optional by design (§4.5): a marker with no image, or a decode
   // failure, degrades to the fallback palette — it must never break the page.
@@ -310,10 +324,11 @@ async function boot() {
     showSpinner(true);
     $('start').disabled = true;
     try {
-      await session.start();
+      await startWithTimeout(session);
       state.started = true;
       setStatus('Point the camera at the marker.');
     } catch (error) {
+      try { await session.dispose(); } catch { /* already stopped */ }
       setStatus(error.message);
       $('start').disabled = false;
     } finally {

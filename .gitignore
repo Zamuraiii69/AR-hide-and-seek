@@ -8,6 +8,7 @@ data/
 graft/
 .claude/
 .codex/
+.codex-remote-attachments/
 .gemini/
 .kiro/
 .remember/

@@ -7,6 +7,7 @@
 // Raw PUT avoids base64 bloat + a multi-MB JSON.parse blocking the event loop.
 
 const express = require('express');
+const fs = require('fs');
 const { stmt } = require('../db');
 const storage = require('../storage');
 
@@ -40,13 +41,26 @@ function safeParse(json, fallback) {
   try { return JSON.parse(json); } catch { return fallback; }
 }
 
+function targetState(row) {
+  if (!row.mind_path) return { ready: false, error: null };
+  try {
+    const size = fs.statSync(storage.markerMindPath(row.id)).size;
+    if (size >= MIN_MIND_BYTES) return { ready: true, error: null };
+    return { ready: false, error: 'Marker target is invalid. Re-upload the compiled .mind file.' };
+  } catch {
+    return { ready: false, error: 'Marker target file is missing. Re-upload the compiled .mind file.' };
+  }
+}
+
 // DB row -> summary object used by the marker list.
 function toSummary(row) {
+  const target = targetState(row);
+  const ready = row.status === 'ready' && target.ready;
   return {
     id: row.id,
     slug: row.slug,
     name: row.name,
-    status: row.status,
+    status: ready ? 'ready' : target.error ? 'target-invalid' : row.status,
     aspect: row.aspect,
     imageUrl: row.image_path ? storage.markerImageUrl(row.id) : null,
     hideCount: row.hide_count ?? 0,
@@ -55,16 +69,19 @@ function toSummary(row) {
 
 // DB row -> full object used by hide/seek clients.
 function toDetail(row) {
+  const target = targetState(row);
+  const ready = row.status === 'ready' && target.ready;
   return {
     id: row.id,
     slug: row.slug,
     name: row.name,
-    status: row.status,
+    status: ready ? 'ready' : target.error ? 'target-invalid' : row.status,
+    targetError: target.error,
     imageWidth: row.image_width,
     imageHeight: row.image_height,
     aspect: row.aspect,
     imageUrl: row.image_path ? storage.markerImageUrl(row.id) : null,
-    mindUrl: row.mind_path ? storage.markerMindUrl(row.id) : null,
+    mindUrl: ready ? storage.markerMindUrl(row.id) : null,
     palette: safeParse(row.palette_json, []),
     grid: safeParse(row.grid_json, []),
     createdAt: row.created_at,
