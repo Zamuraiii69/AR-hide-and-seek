@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-<title>Spike A — in-browser .mind compile</title>
+<title>Upload marker — Meccha Chameleon</title>
 <style>
   * { box-sizing: border-box; }
   html, body { margin:0; padding:0; height:100%; overflow:hidden; overscroll-behavior:none;
@@ -20,6 +20,8 @@
   button { font-size:1rem; font-weight:600; padding:12px 24px; border:none; border-radius:999px;
            background:#e23b3b; color:#fff; cursor:pointer; width:100%; }
   button:disabled { background:#2b3242; color:#6b7585; }
+  .actions { display:grid; gap:10px; }
+  .secondary { background:#2b3242; }
   .bar { height:8px; background:#232a38; border-radius:99px; overflow:hidden; margin-top:10px; }
   .bar > i { display:block; height:100%; width:0%; background:#33cc66; transition:width .15s; }
   table { width:100%; border-collapse:collapse; font-size:.84rem; }
@@ -49,11 +51,9 @@
 <button id="back">← กลับไปเลือกรูปใหม่</button>
 
 <div id="panel">
-  <h1>Spike A — compile <code>.mind</code> ในเบราว์เซอร์</h1>
+  <h1>อัปโหลดรูป Marker</h1>
   <p class="sub">
-    วัดว่า <b>เครื่องนี้</b> ใช้เวลา compile นานแค่ไหน และค้าง/แครชไหม<br>
-    MindAR ไม่ downscale ให้ และ feature detection รันบน main thread ผ่าน TFJS
-    → หน้านี้ downscale ให้ก่อนเสมอ
+    เลือกรูปที่มีรายละเอียดชัดเจน ระบบจะเตรียมไฟล์สำหรับ AR แล้วเปิดหน้า Hide ให้ทดสอบ
   </p>
 
   <div class="card">
@@ -76,7 +76,10 @@
     <table id="stats"></table>
   </div>
 
-  <button id="start" disabled>เริ่ม AR เพื่อทดสอบ tracking</button>
+  <div class="actions">
+    <button id="save" disabled>บันทึกและเปิด AR Hide</button>
+    <button id="start" class="secondary" disabled>ทดสอบ tracking ในหน้านี้</button>
+  </div>
 </div>
 
 <script type="module">
@@ -90,6 +93,7 @@ const MAX_DIM = 1024;   // compiler ไม่ย่อให้ และ detect
 const MIN_DIM = 512;    // tracking pass ย่อลงไปถึง min-dimension 256/128 อยู่แล้ว
 
 let mindBlobUrl = null, mindarThree = null, aspect = 1;
+let mindBytes = null, markerPngBlob = null, markerName = '';
 
 function setStatus(t, cls = '') { statusEl.style.display = 'block'; statusEl.textContent = t; statusEl.className = cls; }
 function row(k, v, cls = '') { return `<tr><td>${k}</td><td class="${cls}">${v}</td></tr>`; }
@@ -115,7 +119,11 @@ async function downscale(file) {
   const out = new Image();
   out.src = c.toDataURL('image/png');
   await out.decode();
-  return { img: out, ow, oh, w, h };
+  const pngBlob = await new Promise((resolve, reject) => c.toBlob(
+    (blob) => blob ? resolve(blob) : reject(new Error('แปลงรูปเป็น PNG ไม่สำเร็จ')),
+    'image/png',
+  ));
+  return { img: out, pngBlob, ow, oh, w, h };
 }
 
 /**
@@ -149,12 +157,15 @@ $('file').addEventListener('change', async (e) => {
   $('progress-card').style.display = 'block';
   $('result-card').style.display = 'none';
   $('start').disabled = true;
+  $('save').disabled = true;
+  mindBytes = null;
+  markerPngBlob = null;
   $('bar').style.width = '0%';
   $('phase').textContent = 'กำลังย่อรูป…';
 
   try {
     const t0 = performance.now();
-    const { img, ow, oh, w, h } = await downscale(file);
+    const { img, pngBlob, ow, oh, w, h } = await downscale(file);
     const tDown = performance.now() - t0;
     aspect = h / w;
 
@@ -186,6 +197,9 @@ $('file').addEventListener('change', async (e) => {
     // exportData() คืน Uint8Array ที่เป็น view บน shared buffer ที่ใหญ่เกินจริง
     // ต้องห่อด้วย Blob (คัดลอกตาม byteLength) — ห้ามใช้ bytes.buffer เด็ดขาด
     const bytes = await compiler.exportData();
+    mindBytes = bytes;
+    markerPngBlob = pngBlob;
+    markerName = file.name.replace(/\.[^.]+$/, '') || 'Marker';
     if (mindBlobUrl) URL.revokeObjectURL(mindBlobUrl);
     mindBlobUrl = URL.createObjectURL(new Blob([bytes]));
 
@@ -215,6 +229,7 @@ $('file').addEventListener('change', async (e) => {
                            : 'ผ่าน ✓', slow ? 'err' : mid ? 'warn' : '');
 
     $('start').disabled = false;
+    $('save').disabled = false;
   } catch (err) {
     console.error(err);
     $('progress-card').style.display = 'none';
@@ -222,6 +237,59 @@ $('file').addEventListener('change', async (e) => {
     $('headline').textContent = 'ล้มเหลว';
     $('headline').className = 'big err';
     $('stats').innerHTML = row('error', String(err && err.message || err), 'err');
+  }
+});
+
+async function api(url, options) {
+  const response = await fetch(url, options);
+  if (response.ok) return response.status === 204 ? null : response.json();
+  const body = await response.json().catch(() => ({}));
+  throw new Error(body.error || `HTTP ${response.status}`);
+}
+
+$('save').addEventListener('click', async () => {
+  if (!mindBytes || !markerPngBlob) return;
+  $('save').disabled = true;
+  $('start').disabled = true;
+  $('progress-card').style.display = 'block';
+
+  try {
+    $('phase').textContent = 'กำลังสร้าง Marker…';
+    const marker = await api('/api/markers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: markerName,
+        imageWidth: 1,
+        imageHeight: aspect,
+        palette: [],
+        grid: [],
+      }),
+    });
+
+    $('phase').textContent = 'กำลังอัปโหลดรูป…';
+    await api(`/api/markers/${marker.id}/image`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'image/png' },
+      body: markerPngBlob,
+    });
+
+    $('phase').textContent = 'กำลังบันทึกข้อมูล AR…';
+    await api(`/api/markers/${marker.id}/target`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: mindBytes,
+    });
+
+    location.href = `/hide.html?marker=${marker.id}`;
+  } catch (err) {
+    console.error(err);
+    $('progress-card').style.display = 'none';
+    $('headline').textContent = 'บันทึกไม่สำเร็จ';
+    $('headline').className = 'big err';
+    $('stats').innerHTML = row('error', String(err && err.message || err), 'err');
+    $('save').disabled = false;
+    $('start').disabled = false;
   }
 });
 
