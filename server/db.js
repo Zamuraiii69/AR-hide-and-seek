@@ -96,13 +96,19 @@ const stmt = {
       SELECT * FROM hides WHERE marker_id = ? AND is_active = 1
       ORDER BY created_at DESC`),
     seekStats: db.prepare(`
-      SELECT COUNT(*) AS attempts, COALESCE(SUM(found), 0) AS found_count
+      SELECT COUNT(*) AS attempts, COALESCE(SUM(found), 0) AS found_count,
+             AVG(taps_used) AS avg_taps          -- NULL until the first attempt
       FROM seeks WHERE hide_id = ?`),
   },
   seeks: {
     insert: db.prepare(`
       INSERT INTO seeks (hide_id, seeker_name, found, taps_used, duration_ms, taps_json)
       VALUES (?, ?, ?, ?, ?, ?)`),
+    byHide: db.prepare(`
+      SELECT id, found, taps_used, duration_ms, taps_json, created_at
+      FROM seeks WHERE hide_id = ?
+      ORDER BY created_at DESC, id DESC
+      LIMIT ?`),
   },
 };
 

@@ -1,84 +1,63 @@
-# AR Status — Shared AR Experience PoC
+# Meccha Chameleon
 
-Two (or more) phones point their cameras at the **same marker image**. That image is the
-shared **origin (0,0,0)**. Each device computes its camera pose relative to the marker and
-broadcasts it over WebSockets. Every device renders a floating **"AR status"** label at the
-real-world position of each other connected user.
+Meccha Chameleon is a browser-based AR hide-and-seek proof of concept. A hider
+places and paints a silhouette against a marker image, shares the hunt link, and
+a seeker gets a limited number of taps to find it. MindAR tracks the marker,
+three.js renders the camouflage, and Express with `node:sqlite` stores markers,
+hides, attempts, and heatmap coordinates.
 
-Works on **iPhone (Safari)** and **Android (Chrome)** — it uses [MindAR](https://github.com/hiukim/mind-ar-js)
-image tracking in the browser (not WebXR, which iOS does not support).
+## Requirements
 
-```
-AR status/
-├── package.json
-├── server.js              # Express + Socket.io relay
-├── README.md
-└── public/
-    ├── index.html
-    ├── app.js             # three.js + MindAR + pose sync
-    ├── targets.mind       # << YOU PROVIDE (compiled marker) — see step 2
-    └── marker.png         # << YOU PROVIDE (the image to point at)
-```
+- Node.js 24 or newer
+- A desktop browser for marker upload and MindAR target compilation
+- An HTTPS URL for camera access on phones
 
-## Run locally
+## Run
 
 ```bash
 npm install
-npm start            # http://localhost:3000
+npm start
 ```
 
-## Step 2 — the marker (required before AR works)
+Open <http://localhost:3000>. Upload a detailed marker image on desktop, then use
+the marker menu to hide something or find a random active hide.
 
-You need two files in `public/`:
+Marker compilation is CPU-heavy and can make a mobile browser unresponsive, so
+the upload form is desktop-only by default. Tablets can use the explicit
+continue option.
 
-- **`marker.png`** — the image everyone points their camera at (display it on a laptop screen
-  or print it). Use a **feature-rich** image (a photo/poster). **Do NOT use a QR code** — flat
-  high-contrast codes track poorly.
-- **`targets.mind`** — the compiled version of that image.
+## Test On Phones
 
-Compile with the official tool: <https://hiukim.github.io/mind-ar-js-doc/tools/compile>
-→ upload your image → download `targets.mind` → drop both files into `public/`.
-
-### Quick start without compiling (use MindAR's sample card)
-
-Want to test immediately? Use MindAR's example "card" target:
-
-1. In `public/app.js` set:
-   ```js
-   imageTargetSrc: 'https://cdn.jsdelivr.net/gh/hiukim/mind-ar-js@1.2.5/examples/image-tracking/assets/card-example/card.mind'
-   ```
-2. Point both phones at the example card image:
-   <https://github.com/hiukim/mind-ar-js/blob/master/examples/image-tracking/assets/card-example/card.png>
-   (open it on a laptop screen).
-
-## Step 3 — test on real phones (camera needs HTTPS)
+Camera access requires HTTPS outside localhost. Expose the local server with
+ngrok:
 
 ```bash
-npx ngrok http 3000        # → https://xxxx.ngrok-free.app
+npx ngrok http 3000
 ```
 
-Open the **https** ngrok URL on each phone → tap **Start AR** → allow camera → point both at the
-same marker. Each phone shows a red cube + "AR status" label where the other user is.
+Open the resulting `https://…ngrok-free.app` URL on each phone. The hider can use
+the system share sheet or copy the generated hunt link. Both phones must point
+at the same physical marker image.
 
-## How the shared origin works
+## Analytics
 
-- `mindarThree.addAnchor(0)` → `anchor.group` is the marker pose **in camera space**.
-- This camera's pose relative to the marker = `inverse(anchor.group.matrixWorld)` → broadcast it.
-- Peer poses are added as **children of `anchor.group`**, so they are placed in marker-relative
-  coordinates automatically on every device — no manual coordinate conversion needed.
+After a hunt, open `/stats.html?hide=<id>` to see attempts, found rate, average
+taps, and a marker-space tap overlay. Hit and miss coordinates are stored with
+each seek attempt; the view displays at most the latest 200 attempts.
 
-## Verify
+## Verification
 
-- **Relay:** open two desktop tabs, watch the server console + browser console — one emits
-  `pose_update`, the other receives it and spawns a mesh.
-- **Tracking:** the green debug cube appears on the marker when detected.
-- **Shared origin:** move phone A and watch A's label move on phone B's screen.
-- **Cleanup:** close one tab → its label disappears on the other (`user_left`).
+```bash
+npm test
+```
 
-## Notes / limits (PoC)
+This runs the mask, palette/marker sampler, and seek/backdrop checks in sequence.
+The physical-device checks still matter: camera permission, marker tracking,
+distance gating, share-sheet behavior, and camouflage under different lighting
+cannot be established by the Node test suite.
 
-- iOS requires a user gesture (the Start button) + HTTPS to open the camera.
-- Marker-based accuracy depends on image quality and lighting; pose stops updating when the
-  marker leaves the frame.
-- The original prompt's **WebXR `image-tracking`** approach was dropped because iOS Safari has no
-  WebXR support and the feature is experimental (Android + chrome flag only).
+## Storage
+
+SQLite data and uploaded media are written under `data/` by default. Set
+`DATA_DIR` to use another directory. This PoC has no accounts or authorization;
+do not expose it as a production service.

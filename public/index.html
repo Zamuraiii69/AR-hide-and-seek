@@ -35,6 +35,15 @@
     gap: 18px;
     margin-bottom: 24px;
   }
+  .upload-action {
+    display: grid;
+    justify-items: end;
+    gap: 6px;
+  }
+  .desktop-hint {
+    color: var(--muted);
+    font-size: .78rem;
+  }
   h1 {
     margin: 0 0 6px;
     font-size: clamp(1.6rem, 5vw, 2.5rem);
@@ -113,6 +122,17 @@
     gap: 10px;
     flex: 1;
   }
+  .card-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-top: auto;
+  }
+  .card-note {
+    min-height: 1.3em;
+    color: var(--muted);
+    font-size: .78rem;
+  }
   .name {
     margin: 0;
     font-size: 1rem;
@@ -137,6 +157,10 @@
     opacity: .55;
     background: #2a303a !important;
   }
+  button:disabled {
+    cursor: not-allowed;
+    opacity: .55;
+  }
   .message {
     border: 1px dashed var(--line);
     border-radius: 8px;
@@ -146,7 +170,8 @@
   @media (max-width: 620px) {
     main { padding: 18px; }
     header { display: block; }
-    header .button { margin-top: 16px; width: 100%; }
+    .upload-action { margin-top: 16px; justify-items: stretch; }
+    header .button { width: 100%; }
     .toolbar a, .toolbar button { flex: 1; }
   }
 </style>
@@ -158,7 +183,10 @@
       <h1>Meccha Chameleon</h1>
       <p>เลือก marker เพื่อซ่อนตัวพรางสีบนรูปเดียวกัน</p>
     </div>
-    <a class="button" href="/upload.html">Upload marker</a>
+    <div class="upload-action">
+      <a class="button" href="/upload.html">Upload marker</a>
+      <span class="desktop-hint">สร้าง marker บนคอมพิวเตอร์</span>
+    </div>
   </header>
 
   <div class="notice">อัปโหลดรูป Marker ที่มีรายละเอียดชัดเจน แล้วระบบจะเปิดหน้า AR Hide ให้ทดสอบ</div>
@@ -184,11 +212,17 @@ function escapeHtml(value) {
 
 function markerCard(marker) {
   const ready = marker.status === 'ready';
+  const hideCount = Number(marker.hideCount || 0);
   const img = marker.imageUrl
     ? `<img class="thumb" src="${marker.imageUrl}" alt="">`
     : '<div class="thumb empty-thumb">No image</div>';
-  const action = ready
-    ? `<a class="button" href="/hide.html?marker=${marker.id}">Hide</a>`
+  const actions = ready
+    ? `<div class="card-actions">
+        <a class="button" href="/hide.html?marker=${marker.id}">Hide here</a>
+        <button class="secondary seek-marker" type="button" data-marker-id="${marker.id}"
+          ${hideCount ? '' : 'disabled title="ยังไม่มีคนซ่อนใน marker นี้"'}>Find someone</button>
+      </div>
+      <div class="card-note" data-marker-note="${marker.id}">${hideCount ? '' : 'ยังไม่มีที่ซ่อนให้ค้นหา'}</div>`
     : '<a class="button disabled" aria-disabled="true">Pending</a>';
   return `
     <article class="card">
@@ -197,9 +231,9 @@ function markerCard(marker) {
         <h2 class="name">${escapeHtml(marker.name)}</h2>
         <div class="meta">
           <span class="status ${ready ? '' : 'pending'}">${escapeHtml(marker.status)}</span>
-          <span>${Number(marker.hideCount || 0)} hides</span>
+          <span>${hideCount} hides</span>
         </div>
-        ${action}
+        ${actions}
       </div>
     </article>`;
 }
@@ -219,6 +253,24 @@ async function loadMarkers() {
 }
 
 refreshBtn.addEventListener('click', loadMarkers);
+markersEl.addEventListener('click', async (event) => {
+  const button = event.target.closest('.seek-marker');
+  if (!button || button.disabled) return;
+  const markerId = Number(button.dataset.markerId);
+  const note = markersEl.querySelector(`[data-marker-note="${markerId}"]`);
+  button.disabled = true;
+  if (note) note.textContent = 'กำลังเลือกที่ซ่อน...';
+  try {
+    const res = await fetch(`/api/markers/${markerId}/hides?pick=random&limit=1`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const [hide] = await res.json();
+    if (!hide) throw new Error('ยังไม่มีที่ซ่อนให้ค้นหา');
+    location.href = `/seek.html?hide=${hide.id}`;
+  } catch (err) {
+    if (note) note.textContent = err.message || 'เปิดที่ซ่อนไม่สำเร็จ';
+    button.disabled = false;
+  }
+});
 loadMarkers();
 </script>
 </body>

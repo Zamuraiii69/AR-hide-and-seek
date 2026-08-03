@@ -4,7 +4,7 @@
 // Responsibilities:
 //   1. Serve the static frontend from /public
 //   2. Serve immutable media (marker images/.mind, painted textures) from /media
-//   3. Expose the JSON API under /api (markers now; hides/seeks later phases)
+//   3. Expose the JSON API under /api (markers, hides, seeks)
 
 const path = require('path');
 const express = require('express');
@@ -13,6 +13,7 @@ const { MEDIA_DIR } = require('./server/storage');
 const { db } = require('./server/db');
 const markersRouter = require('./server/routes/markers');
 const hidesRouter = require('./server/routes/hides');
+const seeksRouter = require('./server/routes/seeks');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -37,6 +38,7 @@ app.use('/media', express.static(MEDIA_DIR, {
 // --- API -------------------------------------------------------------------
 app.use('/api/markers', markersRouter);
 app.use('/api/hides', hidesRouter);
+app.use('/api/seeks', seeksRouter);
 
 // Health check
 app.get('/health', (_req, res) => {

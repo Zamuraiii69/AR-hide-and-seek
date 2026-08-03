@@ -1,0 +1,224 @@
+import { extractPalette, gridPalette } from './core/palette.js';
+
+const MAX_DIM = 1024;
+const MIN_DIM = 512;
+
+const $ = (id) => document.getElementById(id);
+const form = $('marker-form');
+const fileInput = $('file');
+const nameInput = $('name');
+const submit = $('submit');
+const reset = $('reset');
+const preview = $('preview');
+const previewImage = $('preview-image');
+const progressArea = $('progress-area');
+const progress = $('progress');
+const phase = $('phase');
+const status = $('status');
+const desktopGate = $('desktop-gate');
+const continueUpload = $('continue-upload');
+
+let prepared = null;
+let previewUrl = null;
+let uploading = false;
+let markerId = null;
+
+function setStatus(message = '', kind = '') {
+  status.textContent = message;
+  status.dataset.kind = kind;
+}
+
+function setPhase(message, value = null) {
+  progressArea.style.display = 'grid';
+  phase.textContent = message;
+  if (value !== null) progress.value = value;
+}
+
+function setBusy(busy) {
+  uploading = busy;
+  fileInput.disabled = busy;
+  nameInput.disabled = busy;
+  reset.disabled = busy || !prepared;
+  submit.disabled = busy || !prepared || !nameInput.value.trim();
+}
+
+function fileStem(file) {
+  return file.name.replace(/\.[^.]+$/, '').trim() || 'Marker';
+}
+
+function canvasBlob(canvas) {
+  return new Promise((resolve, reject) => canvas.toBlob(
+    (blob) => blob ? resolve(blob) : reject(new Error('Could not encode the marker as PNG.')),
+    'image/png',
+  ));
+}
+
+async function prepareImage(file) {
+  const bitmap = await createImageBitmap(file);
+  try {
+    const original = { width: bitmap.width, height: bitmap.height };
+    const scale = Math.min(1, MAX_DIM / Math.max(original.width, original.height));
+    const width = Math.max(1, Math.round(original.width * scale));
+    const height = Math.max(1, Math.round(original.height * scale));
+    if (Math.min(width, height) < MIN_DIM) {
+      throw new Error(`Marker images need a prepared short edge of at least ${MIN_DIM}px.`);
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext('2d', { willReadFrequently: true });
+    context.drawImage(bitmap, 0, 0, width, height);
+    const { data } = context.getImageData(0, 0, width, height);
+    const sourceDataUrl = canvas.toDataURL('image/png');
+    const pngBlob = await canvasBlob(canvas);
+
+    return {
+      original,
+      width,
+      height,
+      pngBlob,
+      sourceDataUrl,
+      palette: extractPalette(data, width, height),
+      grid: gridPalette(data, width, height),
+    };
+  } finally {
+    bitmap.close();
+  }
+}
+
+async function request(url, options) {
+  const response = await fetch(url, options);
+  if (response.ok) return response.status === 204 ? null : response.json();
+  const body = await response.json().catch(() => null);
+  throw new Error(body?.error || `Request failed (${response.status})`);
+}
+
+async function compilerConstructor() {
+  const module = await import('mindar-image');
+  const Compiler = module.Compiler || window.MINDAR?.IMAGE?.Compiler;
+  if (!Compiler) throw new Error('MindAR image compiler could not be loaded.');
+  return Compiler;
+}
+
+async function compileTarget(sourceDataUrl) {
+  const source = new Image();
+  source.src = sourceDataUrl;
+  await source.decode();
+  const Compiler = await compilerConstructor();
+  const compiler = new Compiler();
+  await new Promise((resolve) => requestAnimationFrame(resolve));
+  await compiler.compileImageTargets([source], (percent) => {
+    const value = Math.round(Number(percent));
+    setPhase(`Compiling AR target... ${value}%`, value);
+  });
+  const bytes = await compiler.exportData();
+  if (!bytes?.byteLength) throw new Error('MindAR compiler produced an empty target.');
+  return new Blob([bytes], { type: 'application/octet-stream' });
+}
+
+function resetPrepared() {
+  prepared = null;
+  markerId = null;
+  if (previewUrl) URL.revokeObjectURL(previewUrl);
+  previewUrl = null;
+  previewImage.removeAttribute('src');
+  preview.style.display = 'none';
+  progressArea.style.display = 'none';
+  reset.disabled = true;
+  submit.disabled = true;
+  setStatus();
+}
+
+async function onFileChange() {
+  const file = fileInput.files?.[0];
+  resetPrepared();
+  if (!file) return;
+  setBusy(true);
+  setPhase('Preparing marker image...', 0);
+  try {
+    prepared = await prepareImage(file);
+    previewUrl = URL.createObjectURL(prepared.pngBlob);
+    previewImage.src = previewUrl;
+    $('original-size').textContent = `${prepared.original.width} x ${prepared.original.height}`;
+    $('prepared-size').textContent = `${prepared.width} x ${prepared.height}`;
+    $('palette-size').textContent = `${prepared.palette.length} colors + 4 x 4 grid`;
+    $('target-size').textContent = 'Not compiled';
+    preview.style.display = 'grid';
+    if (!nameInput.value.trim()) nameInput.value = fileStem(file);
+    setPhase('Image prepared.', 0);
+    setStatus('Ready to compile the AR target.');
+  } catch (error) {
+    setStatus(error.message || 'Could not prepare the selected image.', 'error');
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function uploadMarker(targetBlob) {
+  if (!markerId) {
+    const marker = await request('/api/markers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: nameInput.value.trim(),
+        imageWidth: prepared.width,
+        imageHeight: prepared.height,
+        palette: prepared.palette,
+        grid: prepared.grid,
+      }),
+    });
+    markerId = marker.id;
+  }
+
+  setPhase('Uploading marker image...', 100);
+  await request(`/api/markers/${markerId}/image`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'image/png' },
+    body: prepared.pngBlob,
+  });
+
+  setPhase('Uploading AR target...', 100);
+  await request(`/api/markers/${markerId}/target`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/octet-stream' },
+    body: targetBlob,
+  });
+}
+
+fileInput.addEventListener('change', onFileChange);
+nameInput.addEventListener('input', () => setBusy(uploading));
+reset.addEventListener('click', () => {
+  fileInput.value = '';
+  resetPrepared();
+});
+
+if (matchMedia('(pointer: coarse)').matches || matchMedia('(max-width: 700px)').matches) {
+  desktopGate.hidden = false;
+  form.hidden = true;
+  continueUpload.addEventListener('click', () => {
+    desktopGate.hidden = true;
+    form.hidden = false;
+  }, { once: true });
+}
+
+form.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (!prepared || uploading || !nameInput.value.trim()) return;
+  setBusy(true);
+  setStatus();
+  try {
+    setPhase('Compiling can take 10-30 seconds and the page may not respond.', 0);
+    const targetBlob = await compileTarget(prepared.sourceDataUrl);
+    $('target-size').textContent = `${Math.round(targetBlob.size / 1024)} KB`;
+    await uploadMarker(targetBlob);
+    setPhase('Marker saved.', 100);
+    setStatus('Marker is ready. Opening hide mode...', 'success');
+    window.setTimeout(() => { location.href = `/hide.html?marker=${markerId}`; }, 400);
+  } catch (error) {
+    setStatus(error.message || 'Could not create this marker.', 'error');
+    setPhase('Marker creation stopped.', progress.value);
+  } finally {
+    setBusy(false);
+  }
+});

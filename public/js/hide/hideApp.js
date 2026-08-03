@@ -14,8 +14,9 @@
 //     reads the source image, never the paint already applied.
 
 import * as THREE from 'three';
-import { createArSession } from '../core/arSession.js';
+import { createArSession, filterFromSearch } from '../core/arSession.js';
 import { createSilhouette } from '../core/silhouette.js';
+import { createBackdrop } from '../core/backdrop.js';
 import { loadMask } from '../core/mask.js';
 import { screenToNDC, pickAnchorPlane, localToMeshUV, localToMarkerUV } from '../core/anchorPick.js';
 import { getJSON, postJSON } from '../core/api.js';
@@ -116,9 +117,19 @@ async function boot() {
   const session = createArSession({
     container: $('ar'),
     mindUrl: marker.mindUrl,
+    filter: filterFromSearch(location.search),
     onFound: () => setStatus('Marker found.'),
     onLost: () => setStatus('Point the camera at the marker.'),
   });
+
+  // The backdrop must be here as well as in seek mode, not just there: if the
+  // hider matches the live camera image while the seeker sees the source file,
+  // the camouflage is tuned against the wrong target and the work is wasted.
+  // It also makes the eyedropper exact — it samples the pixels now on screen.
+  const backdrop = sampler?.image
+    ? createBackdrop({ image: sampler.image, aspect: marker.aspect })
+    : null;
+  if (backdrop) session.group.add(backdrop.mesh);
   session.group.add(silhouette.mesh);
 
   const placement = createPlacement(silhouette.mesh, marker.aspect, mask.bbox);
@@ -283,6 +294,8 @@ async function boot() {
   });
   $('review').addEventListener('click', () => setState('REVIEW'));
   $('edit').addEventListener('click', () => setState('PAINT'));
+  // Peek hides the silhouette but NOT the backdrop: the seeker sees the backdrop
+  // too, so "what is left when the model goes away" is the right comparison.
   $('peek').addEventListener('click', () => {
     state.hidden = !state.hidden;
     silhouette.mesh.visible = !state.hidden;
@@ -293,7 +306,7 @@ async function boot() {
     setBusy($('save'), true);
     setText($('share'), '');
     try {
-      await postJSON('/api/hides', {
+      const result = await postJSON('/api/hides', {
         markerId,
         silhouetteId: 'human_a',
         transform: {
@@ -305,7 +318,60 @@ async function boot() {
         },
         paintDataUrl: silhouette.getPaintDataUrl(),
       });
-      setText($('share'), 'Saved. Seek mode will be available in Phase 5.');
+      const shareUrl = new URL(result.shareUrl, location.href).href;
+      const heading = document.createElement('p');
+      heading.textContent = 'บันทึกแล้ว — ส่งลิงก์นี้ให้คนหา';
+
+      const linkText = document.createElement('input');
+      linkText.value = shareUrl;
+      linkText.readOnly = true;
+      linkText.setAttribute('aria-label', 'ลิงก์ค้นหาที่ซ่อน');
+
+      const actions = document.createElement('div');
+      actions.className = 'controls';
+      const copy = document.createElement('button');
+      copy.type = 'button';
+      copy.className = 'secondary';
+      copy.textContent = 'Copy link';
+      const open = document.createElement('a');
+      open.className = 'button';
+      open.href = shareUrl;
+      open.textContent = 'Open hunt';
+      const stats = document.createElement('a');
+      stats.className = 'button secondary';
+      stats.href = `/stats.html?hide=${result.id}`;
+      stats.textContent = 'View stats';
+      actions.append(copy);
+      if (navigator.share) {
+        const share = document.createElement('button');
+        share.type = 'button';
+        share.textContent = 'Share';
+        share.addEventListener('click', async () => {
+          try {
+            await navigator.share({ title: 'Meccha Chameleon', text: 'มาหาที่ซ่อนนี้', url: shareUrl });
+          } catch (error) {
+            if (error.name !== 'AbortError') setText(shareStatus, error.message);
+          }
+        });
+        actions.append(share);
+      }
+      actions.append(open, stats);
+
+      const shareStatus = document.createElement('span');
+      shareStatus.className = 'share-status';
+      shareStatus.setAttribute('role', 'status');
+      copy.addEventListener('click', async () => {
+        try {
+          if (!navigator.clipboard?.writeText) throw new Error('clipboard unavailable');
+          await navigator.clipboard.writeText(shareUrl);
+          setText(shareStatus, 'คัดลอกลิงก์แล้ว');
+        } catch {
+          linkText.focus();
+          linkText.select();
+          setText(shareStatus, 'เลือกลิงก์แล้ว — คัดลอกจากช่องด้านบน');
+        }
+      });
+      $('share').replaceChildren(heading, linkText, actions, shareStatus);
     } catch (error) {
       setText($('share'), error.message);
     } finally {

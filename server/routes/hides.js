@@ -1,6 +1,8 @@
 const express = require('express');
 const { stmt, tx } = require('../db');
 const storage = require('../storage');
+const { MAX_TAPS } = require('../gameRules');
+const { statsFor } = require('../seekStats');
 
 const router = express.Router();
 
@@ -57,14 +59,33 @@ router.get('/:id', (req, res) => {
   if (!row || !row.is_active) return fail(res, 404, 'hide not found');
   const marker = stmt.markers.byId.get(row.marker_id);
   if (!marker) return fail(res, 404, 'marker not found');
-  const stats = stmt.hides.seekStats.get(row.id);
   res.json({
     id: row.id, markerId: row.marker_id, silhouetteId: row.silhouette_id,
     transform: { x: row.pos_x, y: row.pos_y, rot: row.rot_z, w: row.size_w, h: row.size_h },
     paintUrl: storage.hidePaintUrl(row.id), paintRes: row.paint_res,
     marker: { aspect: marker.aspect, mindUrl: storage.markerMindUrl(marker.id), imageUrl: storage.markerImageUrl(marker.id) },
-    stats: { attempts: stats.attempts, found: stats.found_count },
+    maxTaps: MAX_TAPS,
+    stats: statsFor(row.id),
   });
+});
+
+// GET /api/hides/:id/seeks -> capped attempt rows for the PoC heatmap.
+router.get('/:id/seeks', (req, res) => {
+  const id = Number(req.params.id);
+  const hide = stmt.hides.byId.get(id);
+  if (!hide || !hide.is_active) return fail(res, 404, 'hide not found');
+
+  const seeks = stmt.seeks.byHide.all(id, 200).map((row) => ({
+    id: row.id,
+    found: Boolean(row.found),
+    tapsUsed: row.taps_used,
+    durationMs: row.duration_ms,
+    taps: (() => {
+      try { return JSON.parse(row.taps_json); } catch { return []; }
+    })(),
+    createdAt: row.created_at,
+  }));
+  res.json({ hideId: id, stats: statsFor(id), seeks });
 });
 
 module.exports = router;

@@ -27,7 +27,11 @@ import { MIN_ALPHA, toHex } from './palette.js';
 const MAX_DIM = 1024;
 const SAMPLE_RADIUS = 4;
 
-function loadImage(url) {
+/**
+ * Decode the marker image. Exported because seek mode needs the image for the
+ * backdrop plane but has no eyedropper, so it should not pay for the readback.
+ */
+export function loadMarkerImage(url) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';   // must precede src, or it has no effect
@@ -87,7 +91,7 @@ export function makeSampler(data, W, H, aspect) {
  * the two is a real signal that something upstream is wrong.
  */
 export async function loadMarkerSampler(url, maxDim = MAX_DIM) {
-  const img = await loadImage(url);
+  const img = await loadMarkerImage(url);
   const naturalW = img.naturalWidth || img.width;
   const naturalH = img.naturalHeight || img.height;
   if (!naturalW || !naturalH) throw new Error(`marker image has no dimensions: ${url}`);
@@ -104,5 +108,7 @@ export async function loadMarkerSampler(url, maxDim = MAX_DIM) {
   const { data } = ctx.getImageData(0, 0, W, H);
   canvas.width = canvas.height = 0;               // release before we hold on
 
-  return makeSampler(data, W, H, naturalH / naturalW);
+  // `image` rides along so the backdrop plane can texture itself from the same
+  // decode — one fetch, one decode, two consumers (plan-phase5 §5.1).
+  return { ...makeSampler(data, W, H, naturalH / naturalW), image: img };
 }

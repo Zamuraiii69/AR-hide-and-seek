@@ -11,10 +11,41 @@
 import * as THREE from 'three';
 import { MindARThree } from 'mindar-image-three';
 
-// Strong smoothing tuned for a still overlay — do NOT loosen (see plan).
+// Tracking filter. A live trade-off, not settled numbers (plan-phase5 §5.0):
+//   missTolerance — frames MindAR keeps the anchor `visible` AFTER detection
+//     fails, drawing a stale pose. The Phase 2 value of 5 is the direct cause of
+//     the silhouette sliding off the marker during fast motion, which is also a
+//     gameplay exploit (shake the phone, watch for the thing that lags).
+//   filterBeta — one-euro speed coefficient. Low = steady when still, laggy when
+//     moving. 0.01 was pinned to the "still" extreme.
+// Now at the middle of the range the plan asks to try. These have NOT been
+// measured on a device; use ?beta=&miss= (filterFromSearch) to try others
+// without a redeploy, then write the winner here.
 export const DEFAULT_FILTER = {
-  filterMinCF: 0.0001, filterBeta: 0.01, missTolerance: 5, warmupTolerance: 5,
+  filterMinCF: 0.0001, filterBeta: 0.05, missTolerance: 1, warmupTolerance: 5,
 };
+
+// Query keys → MindAR filter keys, for the on-device tuning loop.
+const FILTER_KEYS = [
+  ['mincf', 'filterMinCF'], ['beta', 'filterBeta'],
+  ['miss', 'missTolerance'], ['warmup', 'warmupTolerance'],
+];
+
+/**
+ * Parse a filter override out of a query string: `?beta=0.1&miss=2`.
+ * Step 5.0 is "try numbers on a phone and record what you see" — without this
+ * every attempt costs an edit + redeploy, which is why it never got done.
+ * Ignores absent / non-finite / negative values. Returns a partial filter.
+ */
+export function filterFromSearch(search) {
+  const params = new URLSearchParams(search);
+  const filter = {};
+  for (const [key, name] of FILTER_KEYS) {
+    const value = Number(params.get(key));
+    if (params.get(key) !== null && Number.isFinite(value) && value >= 0) filter[name] = value;
+  }
+  return filter;
+}
 
 /**
  * Create an AR session against a compiled marker.

@@ -1,1 +1,88 @@
-<!doctype html><meta http-equiv="refresh" content="0; url=/spike-compile.html"><title>Upload marker</title><a href="/spike-compile.html">Open marker upload</a>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Create Marker | Meccha Chameleon</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #101417; color: #edf1f3; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; background: #101417; }
+    main { width: min(760px, 100%); margin: 0 auto; padding: 28px 18px 48px; }
+    header { border-bottom: 1px solid #314047; padding-bottom: 20px; margin-bottom: 24px; }
+    h1 { margin: 0; font-size: 1.45rem; font-weight: 680; letter-spacing: 0; }
+    header p { margin: 8px 0 0; color: #a8b5bb; line-height: 1.5; }
+    form { display: grid; gap: 20px; }
+    .field { display: grid; gap: 8px; }
+    label, .label { color: #c9d3d7; font-size: .9rem; font-weight: 650; }
+    input { width: 100%; min-height: 42px; padding: 9px 11px; border: 1px solid #50616a; border-radius: 4px; background: #182025; color: inherit; font: inherit; }
+    input:focus { outline: 2px solid #62c7c4; outline-offset: 2px; }
+    input[type="file"] { padding: 7px; }
+    .preview { display: none; grid-template-columns: minmax(0, 1fr) 180px; gap: 18px; align-items: start; border-top: 1px solid #314047; padding-top: 20px; }
+    .preview img { display: block; width: 100%; max-height: 360px; object-fit: contain; background: #07090a; border: 1px solid #314047; border-radius: 4px; }
+    dl { margin: 0; display: grid; grid-template-columns: 1fr auto; gap: 8px 14px; font-size: .88rem; }
+    dt { color: #9eabb1; } dd { margin: 0; font-variant-numeric: tabular-nums; text-align: right; }
+    .progress { display: none; gap: 8px; border-top: 1px solid #314047; padding-top: 20px; }
+    progress { width: 100%; height: 10px; accent-color: #62c7c4; }
+    #status { min-height: 1.5em; color: #a8b5bb; line-height: 1.5; }
+    #status[data-kind="error"] { color: #ffb4a8; }
+    #status[data-kind="success"] { color: #8cdbb4; }
+    .actions { display: flex; justify-content: flex-end; gap: 10px; border-top: 1px solid #314047; padding-top: 20px; }
+    button { min-height: 42px; padding: 0 16px; border: 1px solid #5d7577; border-radius: 4px; background: #62c7c4; color: #082221; cursor: pointer; font: inherit; font-weight: 700; }
+    button.secondary { background: #253137; color: #e4eef0; }
+    button:disabled { cursor: not-allowed; opacity: .5; }
+    .hint { margin: 0; color: #9eabb1; font-size: .82rem; line-height: 1.45; }
+    .desktop-gate { border: 1px solid #50616a; padding: 18px; background: #182025; }
+    .desktop-gate h2 { margin: 0 0 8px; font-size: 1.05rem; }
+    .desktop-gate p { margin: 0 0 16px; color: #a8b5bb; line-height: 1.5; }
+    [hidden] { display: none !important; }
+    @media (max-width: 560px) { main { padding-top: 20px; } .preview { grid-template-columns: 1fr; } .preview img { max-height: 280px; } .actions { justify-content: stretch; flex-direction: column-reverse; } button { width: 100%; } }
+  </style>
+  <script type="importmap">
+    { "imports": { "mindar-image": "https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image.prod.js" } }
+  </script>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Create Marker</h1>
+      <p>Prepare an image target and save it for AR hide-and-seek.</p>
+    </header>
+    <section class="desktop-gate" id="desktop-gate" hidden>
+      <h2>Use a desktop to create markers</h2>
+      <p>Target compilation can freeze or close a mobile browser tab. Tablets may continue at their own risk.</p>
+      <button class="secondary" id="continue-upload" type="button">Continue anyway</button>
+    </section>
+    <form id="marker-form">
+      <div class="field">
+        <label for="name">Marker name</label>
+        <input id="name" name="name" maxlength="120" required autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="file">Marker image</label>
+        <input id="file" name="file" type="file" accept="image/*" required>
+        <p class="hint">Use a detailed image. The shorter edge must remain at least 512 px after preparation.</p>
+      </div>
+      <section class="preview" id="preview" aria-label="Prepared marker preview">
+        <img id="preview-image" alt="Prepared marker preview">
+        <dl>
+          <dt>Original</dt><dd id="original-size">-</dd>
+          <dt>Prepared</dt><dd id="prepared-size">-</dd>
+          <dt>Palette</dt><dd id="palette-size">-</dd>
+          <dt>Target</dt><dd id="target-size">-</dd>
+        </dl>
+      </section>
+      <section class="progress" id="progress-area" aria-live="polite">
+        <label class="label" id="phase" for="progress">Choose an image to begin.</label>
+        <progress id="progress" max="100" value="0"></progress>
+      </section>
+      <p id="status" role="status"></p>
+      <div class="actions">
+        <button class="secondary" id="reset" type="button" disabled>Choose another image</button>
+        <button id="submit" type="submit" disabled>Compile and save marker</button>
+      </div>
+    </form>
+  </main>
+  <script type="module" src="/js/uploadApp.js"></script>
+</body>
+</html>

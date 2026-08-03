@@ -47,6 +47,21 @@ export function pickAnchorPlane(ndc, camera, anchorGroup, out) {
 }
 
 /**
+ * Camera → marker distance, in MARKER WIDTHS (anchor space has width = 1).
+ *
+ * That unit is the point: one threshold then works for an A4 print, an A3 print
+ * or a phone screen with no physical calibration. MindAR keeps the camera at the
+ * origin and moves the anchor, so this is just the length of the camera position
+ * re-expressed in anchor space. Only meaningful while the anchor is visible.
+ */
+export function cameraDistance(camera, anchorGroup) {
+  anchorGroup.updateWorldMatrix(true, false);
+  _inv.copy(anchorGroup.matrixWorld).invert();
+  _origin.setFromMatrixPosition(camera.matrixWorld);
+  return _origin.applyMatrix4(_inv).length();
+}
+
+/**
  * Anchor-local point → UV on the marker image (for the eyedropper).
  * u = x + 0.5 ; v = y/aspect + 0.5  (three's v=0 is the bottom).
  */

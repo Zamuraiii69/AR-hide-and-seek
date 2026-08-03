@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hunt Stats | Meccha Chameleon</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background:#101417; color:#edf1f3; }
+    * { box-sizing:border-box; }
+    body { margin:0; min-height:100vh; background:#101417; }
+    main { width:min(900px, 100%); margin:0 auto; padding:24px 18px 48px; }
+    header { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; padding-bottom:18px; border-bottom:1px solid #314047; }
+    h1 { margin:0; font-size:1.45rem; }
+    p { margin:7px 0 0; color:#a8b5bb; line-height:1.5; }
+    a.button { min-height:40px; padding:0 14px; border-radius:6px; display:inline-flex; align-items:center; justify-content:center; background:#324139; color:#edf1f3; font-weight:700; text-decoration:none; white-space:nowrap; }
+    .metrics { display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); border-bottom:1px solid #314047; }
+    .metric { padding:18px 12px; border-right:1px solid #314047; }
+    .metric:last-child { border-right:0; }
+    .metric dt { color:#9eabb1; font-size:.8rem; }
+    .metric dd { margin:4px 0 0; font-size:1.35rem; font-weight:700; font-variant-numeric:tabular-nums; }
+    .heatmap { padding-top:22px; }
+    .heatmap-head { display:flex; align-items:end; justify-content:space-between; gap:14px; margin-bottom:12px; }
+    h2 { margin:0; font-size:1rem; }
+    .legend { display:flex; gap:14px; color:#a8b5bb; font-size:.82rem; }
+    .legend span::before { content:""; display:inline-block; width:10px; height:10px; margin-right:5px; border-radius:50%; background:#ff6b63; }
+    .legend .hit::before { background:#46d17e; }
+    canvas { display:block; width:100%; height:auto; background:#07090a; border:1px solid #405047; }
+    #empty, #status { color:#a8b5bb; padding:16px 0; }
+    @media (max-width:620px) { header { display:block; } header .button { width:100%; margin-top:14px; } .metrics { grid-template-columns:1fr 1fr; } .metric:nth-child(2) { border-right:0; } .metric:nth-child(-n+2) { border-bottom:1px solid #314047; } .heatmap-head { align-items:flex-start; flex-direction:column; } }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div><h1>สถิติการค้นหา</h1><p id="subtitle">กำลังโหลดข้อมูล…</p></div>
+      <a class="button" id="hunt-link" href="/">กลับหน้าแรก</a>
+    </header>
+    <dl class="metrics" aria-label="Hunt summary">
+      <div class="metric"><dt>Attempts</dt><dd id="attempts">-</dd></div>
+      <div class="metric"><dt>Found</dt><dd id="found">-</dd></div>
+      <div class="metric"><dt>Found rate</dt><dd id="found-rate">-</dd></div>
+      <div class="metric"><dt>Average taps</dt><dd id="avg-taps">-</dd></div>
+    </dl>
+    <section class="heatmap">
+      <div class="heatmap-head"><h2>ตำแหน่งที่ผู้เล่นแตะ</h2><div class="legend"><span class="miss">Miss</span><span class="hit">Hit</span></div></div>
+      <canvas id="heatmap" hidden></canvas>
+      <p id="empty" hidden>ยังไม่มีการค้นหาที่บันทึกไว้</p>
+      <p id="status" role="alert"></p>
+    </section>
+  </main>
+  <script type="module" src="/js/statsApp.js"></script>
+</body>
+</html>
