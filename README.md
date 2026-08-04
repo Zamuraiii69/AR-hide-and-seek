@@ -1,4 +1,4 @@
-# Meccha Chameleon
+# AR hide and seek
 
 Meccha Chameleon is a browser-based AR hide-and-seek proof of concept. A hider
 places and paints a silhouette against a marker image, shares the hunt link, and
