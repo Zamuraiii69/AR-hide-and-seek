@@ -204,6 +204,9 @@
 </main>
 
 <script type="module">
+import { initializeTopLevelDemoContext } from '/js/demoContext.js';
+initializeTopLevelDemoContext();
+
 const markersEl = document.getElementById('markers');
 const refreshBtn = document.getElementById('refresh');
 

@@ -6,7 +6,7 @@
   "type": "commonjs",
   "scripts": {
     "start": "node server.js",
-    "test": "node tools/check-mask.js && node tools/check-palette.mjs && node tools/check-seek.mjs"
+    "test": "node tools/check-mask.js && node tools/check-palette.mjs && node tools/check-seek.mjs && node tools/check-linearmap-demo.mjs"
   },
   "engines": {
     "node": ">=24.0.0"
