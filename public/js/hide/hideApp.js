@@ -26,6 +26,8 @@ import { createBrush } from '../core/brush.js';
 import { loadMarkerSampler } from '../core/markerSampler.js';
 import { extractPalette, gridPalette, FALLBACK_PALETTE } from '../core/palette.js';
 import { setBusy, setMode, setText } from '../core/hud.js';
+import { getDemoContext } from '../demoContext.js';
+import { shareAndHandleResult } from './shareResult.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -347,10 +349,19 @@ async function boot() {
         share.type = 'button';
         share.textContent = 'Share';
         share.addEventListener('click', async () => {
+          if (share.disabled) return;
+          share.disabled = true;
           try {
-            await navigator.share({ title: 'Meccha Chameleon', text: 'มาหาที่ซ่อนนี้', url: shareUrl });
+            await shareAndHandleResult({
+              share: navigator.share.bind(navigator),
+              payload: { title: 'Meccha Chameleon', text: 'มาหาที่ซ่อนนี้', url: shareUrl },
+              context: getDemoContext(),
+              goToReward: (path) => window.location.assign(path),
+            });
           } catch (error) {
             if (error.name !== 'AbortError') setText(shareStatus, error.message);
+          } finally {
+            share.disabled = false;
           }
         });
         actions.append(share);
