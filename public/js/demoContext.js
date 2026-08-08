@@ -38,8 +38,12 @@ export function isDemoContext(context) {
 
 export function saveDemoContext(context, storage) {
   if (!isDemoContext(context)) return false;
-  safeStorage(storage).setItem(DEMO_CONTEXT_KEY, JSON.stringify(context));
-  return true;
+  try {
+    safeStorage(storage).setItem(DEMO_CONTEXT_KEY, JSON.stringify(context));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function getDemoContext(storage) {
@@ -50,7 +54,12 @@ export function getDemoContext(storage) {
 }
 
 export function clearDemoContext(storage) {
-  safeStorage(storage).removeItem(DEMO_CONTEXT_KEY);
+  try {
+    safeStorage(storage).removeItem(DEMO_CONTEXT_KEY);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // This runs only on the top-level home page. A normal new entry clears an old

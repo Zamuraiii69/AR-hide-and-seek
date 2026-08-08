@@ -12,6 +12,11 @@ check('clamps an oversized reward and never awards already claims', parseDemoCon
 const store = memoryStorage(); initializeTopLevelDemoContext('?source=linearmap&claim=earned&reward=20&treasure=Demo', store);
 check('top-level demo entry persists context', getDemoContext(store)?.treasure === 'Demo'); initializeTopLevelDemoContext('', store);
 check('normal top-level entry clears stale context', !store.data.has(DEMO_CONTEXT_KEY)); clearDemoContext(store);
+const deniedStorage = { getItem: () => { throw new DOMException('denied', 'SecurityError'); }, setItem: () => { throw new DOMException('denied', 'SecurityError'); }, removeItem: () => { throw new DOMException('denied', 'SecurityError'); } };
+let deniedNormal = null; let deniedDemo = null;
+try { deniedNormal = initializeTopLevelDemoContext('', deniedStorage); } catch { deniedNormal = 'threw'; }
+try { deniedDemo = initializeTopLevelDemoContext('?source=linearmap&claim=earned&reward=20&treasure=Demo', deniedStorage); } catch { deniedDemo = 'threw'; }
+check('storage denial does not break normal or demo startup', deniedNormal === null && deniedDemo?.claim === 'earned');
 let destination = null;
 const outcome = await shareAndHandleResult({ share: async () => {}, payload: {}, context: valid, goToReward: (path) => { destination = path; } });
 check('successful native share with context navigates to reward', outcome === 'reward' && destination === '/reward.html');
