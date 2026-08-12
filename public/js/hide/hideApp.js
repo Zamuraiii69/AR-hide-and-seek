@@ -196,7 +196,7 @@ async function boot() {
     const zones = gridPalette(sampler.data, sampler.W, sampler.H, ZONE_GRID).filter(Boolean);
     $('palette-zone').replaceChildren(...zones.map(makeSwatch));
   } else {
-    for (const id of ['tool', 'zone-label', 'palette-zone']) $(id).classList.add('hidden');
+    for (const id of ['tool', 'palette-zone']) $(id).classList.add('hidden');
     setText($('palette-note'), marker.imageUrl
       ? 'อ่านสีจากรูป marker ไม่ได้ — ใช้จานสีสำรอง'
       : 'marker นี้ไม่มีรูปต้นฉบับ — ใช้จานสีสำรอง');

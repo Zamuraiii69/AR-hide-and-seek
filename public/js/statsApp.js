@@ -27,7 +27,7 @@ function drawHeatmap(image, seeks) {
       if (!Number.isFinite(tap.u) || !Number.isFinite(tap.v)) continue;
       context.beginPath();
       context.arc(tap.u * width, (1 - tap.v) * height, radius, 0, Math.PI * 2);
-      context.fillStyle = tap.hit ? 'rgba(70, 209, 126, .82)' : 'rgba(255, 107, 99, .72)';
+      context.fillStyle = tap.hit ? 'rgba(29, 138, 76, .82)' : 'rgba(217, 58, 48, .78)';
       context.fill();
       context.lineWidth = Math.max(2, radius * .22);
       context.strokeStyle = 'rgba(255, 255, 255, .9)';
