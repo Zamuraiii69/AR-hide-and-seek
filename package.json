@@ -1,7 +1,7 @@
 {
-  "name": "meccha-chameleon-poc",
+  "name": "ar-hide-and-seek",
   "version": "1.0.0",
-  "description": "Meccha Chameleon - Web AR hide & seek PoC (MindAR + three.js, async via node:sqlite)",
+  "description": "AR Hide and Seek - Web AR hide & seek PoC (MindAR + three.js, async via node:sqlite)",
   "main": "server.js",
   "type": "commonjs",
   "scripts": {

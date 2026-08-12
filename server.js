@@ -1,4 +1,4 @@
-// Meccha Chameleon — Web AR Hide & Seek (PoC) server
+// AR Hide and Seek — Web AR Hide & Seek (PoC) server
 // Node.js + Express + node:sqlite. No realtime: game flow is async through the DB.
 //
 // Responsibilities:
@@ -73,7 +73,7 @@ app.use((err, req, res, _next) => {
 });
 
 app.listen(PORT, () => {
-  console.log('Meccha Chameleon PoC server running:');
+  console.log('AR Hide and Seek PoC server running:');
   console.log(`  Local:   http://localhost:${PORT}`);
   console.log(`  Expose for mobile testing with:  ngrok http ${PORT}`);
 });

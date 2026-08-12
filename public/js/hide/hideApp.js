@@ -490,7 +490,7 @@ async function boot() {
           try {
             await shareAndHandleResult({
               share: navigator.share.bind(navigator),
-              payload: { title: 'Meccha Chameleon', text: 'มาหาที่ซ่อนนี้', url: shareUrl },
+              payload: { title: 'AR Hide and Seek', text: 'มาหาที่ซ่อนนี้', url: shareUrl },
               context: getDemoContext(),
               goToReward: (path) => window.location.assign(path),
             });
