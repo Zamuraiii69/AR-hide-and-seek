@@ -6,6 +6,7 @@ data/
 
 # local tool and agent state
 graft/
+.superpowers/
 .claude/
 .codex/
 .codex-remote-attachments/
