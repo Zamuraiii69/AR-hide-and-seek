@@ -16,6 +16,9 @@
     button, a.button, input, select { pointer-events:auto; font:inherit; } button, a.button { border:1px solid transparent; border-radius:6px; min-height:40px; padding:0 13px; background:#e44a24; color:white; font-weight:700; display:inline-flex; align-items:center; justify-content:center; text-decoration:none; } button.secondary, a.secondary { background:#ffffff; border-color:#d2d4cf; color:#16181a; } button:disabled { opacity:.5; } .controls { display:flex; gap:8px; flex-wrap:wrap; align-items:center; } .controls button, .controls a.button { flex:1; }
     label { display:grid; grid-template-columns:72px 1fr; align-items:center; gap:9px; color:#3a4146; } input[type=range] { width:100%; accent-color:#e44a24; }
     select { min-height:34px; border:1px solid #d2d4cf; border-radius:4px; background:#ffffff; color:#16181a; padding:0 6px; }
+    .place-grid { display:grid; grid-template-columns:56px 1fr auto; gap:10px 9px; align-items:center; } .place-grid #lock { grid-column:3; grid-row:2 / span 2; align-self:center; } .place-grid #pose-row { grid-column:2 / -1; } .place-grid #fit { grid-column:1 / -1; } .pose-row { display:flex; gap:9px; }
+    .place-grid .row-label { font:600 14px system-ui,sans-serif; color:#3a4146; } .place-grid label.stacked { display:block; color:#3a4146; font:600 14px system-ui,sans-serif; }
+    .pose-glyph { width:17px; height:17px; background:currentColor; -webkit-mask:var(--thumb) center/contain no-repeat; mask:var(--thumb) center/contain no-repeat; } .pose { width:34px; height:34px; min-height:34px; padding:0; border-radius:8px; background:#fff; border:1px solid #d2d4cf; color:#5f6870; } .pose[aria-pressed=true] { background:#e44a24; border-color:transparent; color:#fff; }
     .swatches { display:grid; grid-template-columns:auto 1fr; gap:6px 9px; align-items:center; } .swatch-row { display:flex; gap:7px; flex-wrap:wrap; min-height:30px; } .row-label { color:#5f6870; font-size:13px; white-space:nowrap; }
     /* Zone swatches lost their row label, so they span both grid columns
        instead of dropping into the narrow label column. */
@@ -29,7 +32,7 @@
 <body><div id="ar"></div><div id="hud" data-mode="PLACE">
   <div class="top"><span id="spinner" class="spinner hidden"></span><span id="status">Preparing marker…</span><button id="start" type="button" disabled>Start camera</button></div>
   <section class="panel">
-    <div class="place-only controls"><label>Scale <input id="scale" type="range" min="0.08" max="1.2" step="0.01" value="0.30"></label><label>Rotate <input id="rotate" type="range" min="-180" max="180" step="1" value="0"></label><span id="fit"></span><button id="lock" type="button">Lock position</button></div>
+    <div class="place-only place-grid"><span class="row-label">Pose</span><div id="pose-row" class="pose-row"><!-- 4 buttons, built in JS --></div><label class="stacked" for="scale">Scale</label><input id="scale" type="range" min="0.08" max="1.2" step="0.01" value="0.30"><label class="stacked" for="rotate">Rotate</label><input id="rotate" type="range" min="-180" max="180" step="1" value="0"><button id="lock" type="button">Lock Position</button><span id="fit"></span></div>
     <div class="paint-only">
       <div class="swatches">
         <span class="row-label">สีเด่น</span><div id="palette" class="swatch-row"></div>
