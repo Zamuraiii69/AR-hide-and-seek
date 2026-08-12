@@ -26,7 +26,7 @@ import { createBrush } from '../core/brush.js';
 import { loadMarkerSampler } from '../core/markerSampler.js';
 import { POSE_IDS, silhouetteUrl } from '../core/poses.js';
 import { poseThumbnail } from '../core/poseThumb.js';
-import { extractPalette, gridPalette, FALLBACK_PALETTE } from '../core/palette.js';
+import { extractPalette, FALLBACK_PALETTE } from '../core/palette.js';
 import { setBusy, setMode, setText } from '../core/hud.js';
 import { getDemoContext } from '../demoContext.js';
 import { shareAndHandleResult } from './shareResult.js';
@@ -34,8 +34,6 @@ import { shareAndHandleResult } from './shareResult.js';
 const $ = (id) => document.getElementById(id);
 
 const DEFAULT_POSE = POSE_IDS[0];            // 'human_a'
-const ZONE_GRID = 4;              // 4×4 zones — the row that actually helps
-const PICKED_MAX = 6;             // most-recent-first, enough to work from
 const ASPECT_TOLERANCE = 0.01;    // db vs image aspect: wider than this is a bug
 const START_TIMEOUT_MS = 15000;
 
@@ -230,8 +228,6 @@ async function boot() {
 
   // --- palette --------------------------------------------------------------
 
-  const picked = [];
-
   function selectColor(color, button) {
     brush.setColor(color);
     $('current-color').style.background = color;
@@ -250,30 +246,17 @@ async function boot() {
     return button;
   }
 
-  function addPicked(color) {
-    const seen = picked.indexOf(color);
-    if (seen >= 0) picked.splice(seen, 1);
-    picked.unshift(color);
-    if (picked.length > PICKED_MAX) picked.length = PICKED_MAX;
-    const row = $('palette-picked');
-    row.replaceChildren(...picked.map(makeSwatch));
-    selectColor(color, row.firstElementChild);
-  }
-
-  const dominant = sampler ? extractPalette(sampler.data, sampler.W, sampler.H) : [];
+  const dominant = sampler ? extractPalette(sampler.data, sampler.W, sampler.H, 10) : [];
   // An image that yields no colours (fully transparent) is as unusable to the
   // eyedropper as no image at all — same fallback, one flag for both paths.
   const canEyedrop = dominant.length > 0;
 
   $('palette').replaceChildren(...(canEyedrop ? dominant : FALLBACK_PALETTE).map(makeSwatch));
-  if (canEyedrop) {
-    const zones = gridPalette(sampler.data, sampler.W, sampler.H, ZONE_GRID).filter(Boolean);
-    $('palette-zone').replaceChildren(...zones.map(makeSwatch));
-  } else {
-    for (const id of ['tool', 'palette-zone']) $(id).classList.add('hidden');
+  if (!canEyedrop) {
+    $('tool').classList.add('hidden');
     setText($('palette-note'), marker.imageUrl
-      ? 'อ่านสีจากรูป marker ไม่ได้ — ใช้จานสีสำรอง'
-      : 'marker นี้ไม่มีรูปต้นฉบับ — ใช้จานสีสำรอง');
+      ? "Couldn't read colours from the marker image — using the fallback palette."
+      : 'This marker has no source image — using the fallback palette.');
   }
   selectColor(
     canEyedrop ? dominant[0] : FALLBACK_PALETTE[0],
@@ -292,7 +275,7 @@ async function boot() {
 
   $('tool').addEventListener('click', () => {
     setTool(state.tool === 'EYEDROPPER' ? 'BRUSH' : 'EYEDROPPER');
-    setStatus(state.tool === 'EYEDROPPER' ? 'แตะบนรูป marker เพื่อดูดสี' : STATUS.PAINT);
+    setStatus(state.tool === 'EYEDROPPER' ? 'Tap the marker image to pick a colour.' : STATUS.PAINT);
   });
 
   function eyedrop(event) {
@@ -301,13 +284,13 @@ async function boot() {
     localToMarkerUV(p, marker.aspect, markerUv);
     const color = sampler.sample(markerUv.x, markerUv.y);
     if (!color) {
-      setStatus('แตะนอกขอบรูป marker — สียังไม่เปลี่ยน');
+      setStatus('Tap inside the marker image — colour unchanged.');
       return;
     }
-    addPicked(color.hex);
+    selectColor(color.hex, null);
     // Straight back to the brush: the hider wants to pick, then paint at once.
     setTool('BRUSH');
-    setStatus(`ดูดสี ${color.hex} แล้ว — ระบายต่อได้เลย`);
+    setStatus(`Picked ${color.hex} — keep painting.`);
   }
 
   // --- pointer --------------------------------------------------------------

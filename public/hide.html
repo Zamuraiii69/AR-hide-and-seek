@@ -19,12 +19,14 @@
     .place-grid { display:grid; grid-template-columns:56px 1fr auto; gap:10px 9px; align-items:center; } .place-grid #lock { grid-column:3; grid-row:2 / span 2; align-self:center; } .place-grid #pose-row { grid-column:2 / -1; } .place-grid #fit { grid-column:1 / -1; } .pose-row { display:flex; gap:9px; }
     .place-grid .row-label { font:600 14px system-ui,sans-serif; color:#3a4146; } .place-grid label.stacked { display:block; color:#3a4146; font:600 14px system-ui,sans-serif; }
     .pose-glyph { width:17px; height:17px; background:currentColor; -webkit-mask:var(--thumb) center/contain no-repeat; mask:var(--thumb) center/contain no-repeat; } .pose { width:34px; height:34px; min-height:34px; padding:0; border-radius:8px; background:#fff; border:1px solid #d2d4cf; color:#5f6870; } .pose[aria-pressed=true] { background:#e44a24; border-color:transparent; color:#fff; }
-    .swatches { display:grid; grid-template-columns:auto 1fr; gap:6px 9px; align-items:center; } .swatch-row { display:flex; gap:7px; flex-wrap:wrap; min-height:30px; } .row-label { color:#5f6870; font-size:13px; white-space:nowrap; }
-    /* Zone swatches lost their row label, so they span both grid columns
-       instead of dropping into the narrow label column. */
-    #palette-zone { grid-column:1/-1; }
-    .swatch { min-height:30px; width:30px; padding:0; border:2px solid rgba(22,24,26,.28); } .swatch[aria-pressed=true] { outline:2px solid #16181a; } #palette-note { grid-column:1/-1; color:#a35c00; font-size:13px; }
-    #current-color { width:28px; height:28px; border-radius:50%; border:2px solid rgba(22,24,26,.28); flex:0 0 auto; } #tool[aria-pressed=true] { background:#e44a24; border-color:transparent; color:white; outline:2px solid #16181a; }
+    .row-label { color:#5f6870; font-size:13px; white-space:nowrap; }
+    .paint-only { display:grid; grid-template-columns:1fr 1fr; gap:14px; } .paint-col { min-width:0; display:grid; gap:8px; align-content:start; } .panel-h { margin:0; font:700 17px system-ui,sans-serif; color:#16181a; }
+    .swatch-grid { display:grid; grid-template-columns:repeat(5,1fr); gap:8px; } .swatch { padding:0; border:2px solid rgba(22,24,26,.28); border-radius:8px; aspect-ratio:1; min-height:0; width:auto; } .swatch[aria-pressed=true] { outline:2px solid #16181a; } #palette-note { color:#a35c00; font-size:13px; }
+    .paint-col label.stacked, .paint-col .ctl-label { display:block; color:#3a4146; font:600 14px system-ui,sans-serif; }
+    .eyedrop-row { display:flex; gap:20px; align-items:flex-start; } .eyedrop-pair { display:flex; gap:8px; align-items:center; }
+    #current-color, #tool { width:22px; height:22px; border-radius:50%; padding:0; min-height:0; } #current-color { border:2px solid rgba(22,24,26,.28); } #tool { background:#fff; border:1px solid #d2d4cf; } #tool[aria-pressed=true] { background:#e44a24; border-color:transparent; outline:2px solid #16181a; }
+    #paint-preview { width:100%; aspect-ratio:1; background:#fff; border:1px solid #e2e3df; border-radius:6px; display:block; }
+    [data-mode=PLACE] .panel, [data-mode=PAINT] .panel { background:rgba(243,243,241,.94); }
     [data-mode=PLACE] .paint-only, [data-mode=PLACE] .review-only, [data-mode=PAINT] .place-only, [data-mode=PAINT] .review-only, [data-mode=REVIEW] .place-only, [data-mode=REVIEW] .paint-only { display:none; }
     #share { color:#16181a; display:grid; gap:8px; } #share p { margin:0; } #share input { width:100%; min-height:38px; border:1px solid #d2d4cf; border-radius:4px; background:#ffffff; color:#16181a; padding:7px 9px; } #share a { color:#b23718; } #share .share-status { color:#5f6870; font-size:13px; min-height:1.3em; } .spinner { width:16px; height:16px; border:2px solid rgba(22,24,26,.22); border-top-color:#16181a; border-radius:50%; animation:spin .75s linear infinite; } .hidden { display:none; } @keyframes spin { to { transform:rotate(360deg) } }
   </style>
@@ -34,14 +36,18 @@
   <section class="panel">
     <div class="place-only place-grid"><span class="row-label">Pose</span><div id="pose-row" class="pose-row"><!-- 4 buttons, built in JS --></div><label class="stacked" for="scale">Scale</label><input id="scale" type="range" min="0.08" max="1.2" step="0.01" value="0.30"><label class="stacked" for="rotate">Rotate</label><input id="rotate" type="range" min="-180" max="180" step="1" value="0"><button id="lock" type="button">Lock Position</button><span id="fit"></span></div>
     <div class="paint-only">
-      <div class="swatches">
-        <span class="row-label">สีเด่น</span><div id="palette" class="swatch-row"></div>
-        <div id="palette-zone" class="swatch-row"></div>
-        <span class="row-label">ที่ดูดมา</span><div id="palette-picked" class="swatch-row"></div>
+      <div class="paint-col">
+        <h3 class="panel-h">Color</h3>
+        <div id="palette" class="swatch-grid"></div>
         <span id="palette-note"></span>
+        <label class="stacked" for="brush-size">Brush</label><input id="brush-size" type="range" min="4" max="52" value="16">
+        <div class="eyedrop-row"><div><span class="ctl-label">Eyedropper</span><div class="eyedrop-pair"><button id="tool" type="button" aria-pressed="false" aria-label="Eyedropper"></button><span id="current-color" aria-hidden="true"></span></div></div><div><label class="stacked" for="brush-edge">Edge</label><select id="brush-edge"><option value="hard">Hard</option><option value="soft">Soft</option></select></div></div>
+        <button id="review" type="button">Review</button>
       </div>
-      <div class="controls"><span id="current-color" aria-hidden="true"></span><button id="tool" class="secondary" type="button" aria-pressed="false">ดูดสี</button><label>Brush <input id="brush-size" type="range" min="4" max="52" value="16"></label><label>Edge <select id="brush-edge"><option value="hard">Hard</option><option value="soft">Soft</option></select></label></div>
-      <button id="review" type="button">Review</button>
+      <div class="paint-col">
+        <h3 class="panel-h">Paint Here</h3>
+        <canvas id="paint-preview"></canvas>
+      </div>
     </div>
     <div class="review-only controls"><button id="peek" class="secondary" type="button">Hide silhouette</button><button id="edit" class="secondary" type="button">Edit paint</button><button id="save" type="button">Save hide</button></div>
     <div id="share"></div>

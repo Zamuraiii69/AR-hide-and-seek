@@ -13,7 +13,7 @@ import * as THREE from 'three';
 
 export const PAINT_RES = 512;
 const Z_SILHOUETTE = 0.001;               // hair above the marker plane
-const BASE_COLOR = '#8a7a5e';             // opaque neutral until first paint
+const BASE_COLOR = '#b1b1b1';             // opaque neutral until first paint
 
 const _texLoader = new THREE.TextureLoader();
 
