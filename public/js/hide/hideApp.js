@@ -19,6 +19,7 @@ import { createSilhouette } from '../core/silhouette.js';
 import { createBackdrop } from '../core/backdrop.js';
 import { loadMask } from '../core/mask.js';
 import { screenToNDC, pickAnchorPlane, localToMarkerUV } from '../core/anchorPick.js';
+import { toPreviewUV } from '../core/previewUv.js';
 import { getJSON, postJSON } from '../core/api.js';
 import { bindPointer } from '../core/pointer.js';
 import { createPlacement } from '../core/placement.js';
@@ -364,21 +365,15 @@ async function boot() {
 
   window.addEventListener('resize', sizePreviewCanvas);
 
-  function toPreviewUV(event, out) {
-    const r = previewCanvas.getBoundingClientRect();
-    out.x = (event.clientX - r.left) / r.width;
-    out.y = 1 - (event.clientY - r.top) / r.height;      // three's v=0 is the bottom
-  }
-
   bindPointer(previewCanvas, {
     start(e) {
       if (state.mode !== 'PAINT' || state.tool !== 'BRUSH') return;
-      toPreviewUV(e, meshUv);
+      toPreviewUV(e.clientX, e.clientY, previewCanvas.getBoundingClientRect(), meshUv);
       if (mask.isBody(meshUv.x, meshUv.y)) brush.start(meshUv);
     },
     move(e) {
       if (state.mode !== 'PAINT' || state.tool !== 'BRUSH') return;
-      toPreviewUV(e, meshUv);
+      toPreviewUV(e.clientX, e.clientY, previewCanvas.getBoundingClientRect(), meshUv);
       if (meshUv.x >= 0 && meshUv.x <= 1 && meshUv.y >= 0 && meshUv.y <= 1) brush.move(meshUv);
     },
     end() { brush.end(); },
