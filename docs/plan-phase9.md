@@ -101,6 +101,47 @@ original. Decision (§3, D6): **keep it** as the generator's output and as a
 documented non-selectable asset. It is not offered in the pose picker and not
 added to the write allowlist.
 
+### 🔴 B5 — every existing hide points at art that changed under it
+
+`human_a` used to be the generated default body. It is now a **different pose**,
+and the old art moved to `human_default.png`. The database was not told:
+
+```text
+sqlite> SELECT silhouette_id, count(*), min(created_at), max(created_at) FROM hides GROUP BY silhouette_id;
+human_a | 7 | 2026-07-29 23:53:17 | 2026-08-04 16:25:15
+```
+
+All 7 rows in the local `data/app.db` — and whatever the Render instance holds in
+its own `DATA_DIR` — were painted against the **old** shape. `seekApp` resolves
+`silhouette_id` → PNG at run time (`public/js/seek/seekApp.js:72-75`), so those
+hunts now render the saved 512² paint through a mask it was never painted for:
+paint bleeds where the new pose has body and vanishes where it does not. The
+camouflage those hiders tuned by eye is destroyed, silently, with no error.
+
+**Fix (Step 9.0.3):** a one-time, guarded migration. `PRAGMA user_version` is 0
+today, so it is free to use as the schema marker (`server/db.js` already has an
+unguarded `db.exec` fix-up block at `:60-66` — do **not** copy that pattern here;
+this one must run exactly once).
+
+```js
+// server/db.js — after table creation, before prepared statements.
+// Phase 9 renamed the generated default body to human_default and gave
+// 'human_a' to new hand-drawn art. Rows written before that point were painted
+// against the old shape and must follow it, or their camouflage is nonsense.
+if (db.prepare('PRAGMA user_version').get().user_version < 1) {
+  db.exec(`UPDATE hides SET silhouette_id = 'human_default' WHERE silhouette_id = 'human_a';`);
+  db.exec('PRAGMA user_version = 1');
+}
+```
+
+Ordering matters: this must ship **before** the pose picker can write a genuine
+`human_a`, otherwise the migration cannot tell old rows from new ones. That makes
+it part of Step 9.0, not a later cleanup.
+
+It also means `human_default` must stay a **readable** id forever, even though it
+is not selectable (D6). `seekApp.silhouetteUrl`'s permissive regex already allows
+it; the write-side allowlist (§9.1.5) deliberately does not.
+
 ### ⚪ B4 — stale product name
 
 `package.json:2` (`meccha-chameleon-poc`), `public/hide.html:5` (`Hide | Meccha
@@ -179,7 +220,17 @@ re-typed) plus `human_default`, and apply the assertion table from B1. Print one
 
 `human_a.png` → `human_default.png` at `:1` (comment) and `:106` (write path).
 
-**Gate for Step 9.1:** `npm test` green, all five assets asserted.
+### 9.0.3 One-time `silhouette_id` migration
+
+Code and reasoning in **B5**. Ship it before the pose picker can write a real
+`human_a` — after that, old and new rows are indistinguishable.
+
+Deploy note: the Render instance has its own `DATA_DIR` and its own rows. The
+migration is guarded by `PRAGMA user_version`, so it runs once per database at
+startup and is a no-op on every boot after that — nothing manual to remember.
+
+**Gate for Step 9.1:** `npm test` green with all five assets asserted, and the
+migration verified against a copy of a real `data/app.db` (§5).
 
 ---
 
@@ -397,7 +448,7 @@ Reference: `docs/img-ref/UI_2_1.png`.
 
 | Element | Target |
 |---|---|
-| Panel | `display:grid; grid-template-columns:1fr 1fr; gap:14px`, `min-width:0` on both children |
+| Panel | `display:grid; grid-template-columns:1fr 1fr; gap:14px`, `min-width:0` on both children; background `rgba(243,243,241,.94)` per §4.4 |
 | `Color` / `Paint Here` | 17 px / 700, `#16181a` |
 | Swatch grid | `repeat(5, 1fr)`, gap 8 px, `aspect-ratio:1`, radius 8 px, ~23 px at 360 px viewport |
 | `Brush` / `Eyedropper` / `Edge` | 14 px / 600, `#3a4146`, **above** their control (unlike PLACE) |
@@ -529,14 +580,69 @@ something like `Paint on the preview. Use the eyedropper to pick marker colours.
 | `public/hide.html` | two-column `.paint-only`, preview canvas, drop zone/picked rows, English labels |
 | `public/js/hide/hideApp.js` | `n=10`, drop `gridPalette`/`ZONE_GRID`/`PICKED_MAX`/`picked`, preview build + redraw + pointer binding, AR-canvas handlers trimmed, `STATUS.PAINT` |
 | `public/js/core/poseThumb.js` | reused at `paintRes` for the mask-alpha canvas |
+| `public/js/core/silhouette.js` | `BASE_COLOR` → `#b1b1b1` (D9 / §4.1) |
 
 ---
 
 ## Step 9.3 — Cleanup carried along
 
 - B4 naming: `package.json` name, `hide.html` `<title>`, share `title`.
-- `docs/plan.md` — append a Phase 9 section pointing at this file, so `plan.md`
-  stays the index it claims to be. Do **not** touch its Phase 8 text.
+- `docs/plan.md` — Phase 9 section pointing at this file. **Already done** as part
+  of authoring this spec; do not repeat it. Phase 8's text stays untouched.
+
+## Step 9.4 — Balance instrumentation (from D11)
+
+The owner chose to adjust balance for four poses. This step builds the only thing
+that makes that possible and **stops short of tuning anything**.
+
+### 9.4.1 Per-pose aggregate query
+
+`statsFor` answers "how did *this hide* go". Rebalancing needs "how does *this
+pose* go, across every hide that used it". `seeks` has no `silhouette_id` of its
+own — it joins through `hides` (`server/db.js:47-53`), which is enough:
+
+```sql
+SELECT h.silhouette_id                       AS poseId,
+       count(*)                              AS attempts,
+       sum(s.found)                          AS found,
+       avg(s.taps_used)                      AS avgTaps,
+       avg(s.duration_ms)                    AS avgDurationMs,
+       count(DISTINCT h.id)                  AS hides
+FROM seeks s JOIN hides h ON h.id = s.hide_id
+GROUP BY h.silhouette_id
+ORDER BY attempts DESC;
+```
+
+Expose it as `GET /api/stats/poses`. Keep it a plain read with no parameters —
+this is a PoC instrument, not an analytics product (same restraint as
+`plan-phase7.md:207`). Round `foundRate` the way `seekStats.js:8` already does so
+the two surfaces agree.
+
+Reuse it rather than inventing a second shape: `statsFor` and this query should
+return the same field names for the fields they share (`attempts`, `found`,
+`foundRate`, `avgTaps`).
+
+### 9.4.2 Surface it
+
+Add a small table to `stats.html` — pose id, attempts, hides, found rate, average
+taps — below the existing per-hide view. One `<table>`, no chart. The point is to
+be able to read the numbers, not to present them.
+
+### 9.4.3 What NOT to do in this phase
+
+- **Do not** set a per-pose `MAX_TAPS`. It is global today
+  (`server/gameRules.js:1`) and must stay global until the table above has real
+  rows. A per-pose allowance also means the seeker's pre-flight
+  `GET /api/hides/:id` has to carry it — which F7-3 already made server-authoritative
+  (`plan-phase7.md:87-89`), so the seam exists when it is needed.
+- **Do not** give `human_c` a different default scale to "compensate" for its
+  wide footprint. The clamp already communicates the limit (§6).
+- **Do not** treat the two seek rows on record as a baseline. After B5 they belong
+  to `human_default`, a pose nobody can select. Balancing starts from zero.
+
+**Exit criterion for the rebalance itself (a later change, not this one):** at
+least ~20 attempts per pose across more than one marker. Below that, found-rate
+differences between poses are noise, and tuning on noise is worse than not tuning.
 
 ---
 
@@ -552,21 +658,94 @@ something like `Paint on the preview. Use the eyedropper to pick marker colours.
 | **D6** | `human_default.png` kept, not selectable | It is the generator's output and the historical default. Adding it to the picker would make five poses where the design says four. |
 | **D7** | English strings on both panels touched here | The mocks are in English, and `plan-phase5/7` + `README` are English. `seek.html` stays Thai for now — the mixed-language UI is a real inconsistency and is listed as a follow-up, not silently "fixed" halfway. |
 | **D8** | One pose list, drift caught by `npm test` | Direct application of the F7-3 lesson (`plan-phase7.md:79-89`): a client/server constant pair that gates validation fails *after* the user's work is done. |
+| **D9** | `BASE_COLOR` `#8a7a5e` → `#b1b1b1` | Owner decision, 2026-08-13. Matches the mock exactly; makes unpainted area obvious to the hider. Full reasoning and the accepted cost in §4.1. |
+| **D10** | Pose buttons render the real silhouettes | Owner decision, 2026-08-13. The mock's glyphs are placeholders. §9.1.2 unchanged. |
+| **D11** | Rebalance from per-pose data, and build the query first | Owner decision, 2026-08-13. Four poses are not one pose; but no per-pose attempt data exists, so Step 9.4 adds the instrumentation and explicitly refuses to pre-tune. |
+| **D12** | Ship `#e44a24`, not the mock's `#d45535` | One orange used everywhere beats a truer orange on one page. A global swap is its own change. §4.4. |
+| **D13** | Migrate pre-Phase-9 rows to `human_default` before the picker ships | Their paint was made for the old shape; leaving them on `human_a` silently ruins camouflage the hider tuned by eye. B5. |
 
-# 4. Open questions for the product owner
+# 4. Answers received — 2026-08-13
 
-1. **Unpainted body colour.** The mock's figure is mid-grey; the real unpainted
-   base is `#8a7a5e` (`silhouette.js:16`), a muted brown. Changing it to grey
-   matches the mock but makes a *partially* painted hide read more strongly
-   against a typical marker. Recommendation: **keep `#8a7a5e`** and treat the
-   mock's grey as placeholder art. Needs a yes/no.
-2. **Pose labels.** The mock's buttons carry abstract glyphs (circle, square,
-   triangle, arch) — placeholders. This spec renders the real silhouettes
-   instead. Confirm that is what you want rather than icon art.
-3. **Does the seeker need to know the pose?** Today the hunt shows the shape only
-   through the camouflage. Four distinguishable poses make the silhouette
-   fractionally easier to identify once spotted. No change proposed; flagging
-   because it shifts game balance and §5.5 rebalancing data predates it.
+All three open questions were answered by the product owner. They are now D9–D11
+in the register above; the reasoning and the work they create is here.
+
+## 4.1 Unpainted body colour → grey, per the mock
+
+Sampled from `UI_2_1.png`: the figure is a flat **`#b1b1b1`** on a `#ffffff`
+preview ground. So `BASE_COLOR` (`public/js/core/silhouette.js:16`) changes
+`#8a7a5e` → `#b1b1b1`.
+
+**Where this actually lands.** `createSilhouette` fills the paint canvas with
+`BASE_COLOR` once (`:34-35`), so it is the colour of every not-yet-painted pixel.
+It shows in exactly two places:
+
+- the new HUD preview, and
+- the silhouette on the marker through the camera, in hide mode.
+
+It does **not** reach seek mode. `loadPaint` (`:71-83`) draws the saved PNG over
+the whole 512² canvas before the first frame, and a failure there rejects `boot()`
+rather than falling back — so a seeker never sees the base colour.
+
+**The trade-off, stated plainly.** `#8a7a5e` was an earthy mid-tone chosen to be
+inoffensive against a typical marker; `#b1b1b1` is lighter and more neutral, so a
+*partially* painted hide reads more strongly against the marker. That cuts both
+ways and, on balance, in our favour:
+
+- ✅ unpainted area is now obvious to the hider — "I missed a spot" is visible at
+  a glance instead of blending into the camouflage and shipping half-done
+- ✅ the preview matches the mock, and the preview is the whole point of §9.2.3
+- ⚠️ a hider who saves early ships an easier hunt than they would have before
+
+Accepted knowingly. The mitigation is the hider's own eyes, which is the design
+premise this PoC already rests on (`plan.md:310`).
+
+## 4.2 Pose buttons → real silhouettes, confirmed
+
+§9.1.2 stands as written: thumbnails are generated from the actual pose PNGs, not
+from the mock's placeholder glyphs (circle / square / triangle / arch). No change
+to the plan; the ambiguity is closed.
+
+## 4.3 Game balance → adjust (new Step 9.4)
+
+The owner chose to rebalance rather than assume four poses play like one. This
+adds real work, because **the data needed to rebalance does not exist yet**:
+
+- `statsFor` (`server/seekStats.js:3-11`) aggregates per *hide*. There is no query
+  that groups by `silhouette_id`, so "is `human_c` easier to find than `human_b`"
+  is currently unanswerable.
+- `MAX_TAPS` is a single global (`server/gameRules.js:1`) applied to every hide
+  regardless of pose.
+- The two seek rows on record predate poses entirely, and after B5's migration
+  they belong to `human_default` — so the baseline is **n=2 on a pose that is not
+  even selectable**. Treat the existing seek data as gone for balancing purposes.
+
+See Step 9.4. The one thing not to do is pre-tune: Phase 7 §7.3 already settled
+that (`plan-phase7.md:213-215`), and guessing per-pose difficulty before any
+attempts exist would repeat exactly the mistake that rule was written to prevent.
+
+## 4.4 Colour audit — mock vs. shipped theme
+
+Sampled from both mocks with a lossless decode, so these are the designer's
+literal values, not screenshots of the running app.
+
+| Token | Mock | Light theme on `main` | Verdict |
+|---|---|---|---|
+| Primary / buttons | `#d45535` | `#e44a24` | **Discrepancy — see below** |
+| Panel background | `#f3f3f1` (opaque) | `rgba(255,255,255,.94)` | Adopt `rgba(243,243,241,.94)` on the two panels in scope |
+| Preview ground | `#ffffff` | — (new) | Use as specified |
+| Unpainted body | `#b1b1b1` | `#8a7a5e` | Changed per §4.1 |
+
+**The primary is not the same orange.** `#d45535` is consistent across every
+button in both mocks — top bar, Lock Position, Review, selected pose — so it is
+deliberate, not a rendering artefact. But `#e44a24` is already shipped across
+`index`, `upload`, `hide`, `seek`, `stats` and `reward` from the merged PR #1.
+
+**Recommendation: keep `#e44a24` and do not change it in this phase.** Applying
+`#d45535` to `hide.html` alone would leave the hider's screen a different orange
+from every other page — worse than either colour used consistently. If the owner
+wants `#d45535`, it is a one-line-per-page global swap and belongs in its own
+change, not buried in a HUD feature. **Flagging, not asking** — this phase ships
+`#e44a24` unless told otherwise.
 
 # 5. Verification
 
@@ -586,13 +765,31 @@ New assertions to add:
   DOM dependency if the rect is passed in, so it is worth extracting and testing
   (v-flip is exactly the kind of thing that silently paints upside down).
 
+**Migration (B5) — on a COPY of a real `data/app.db`, never the original:**
+
+```bash
+cp -r data data-backup                       # do this first, every time
+node -e "…"                                  # or: npm start, then stop it
+# expected after one boot:
+#   SELECT silhouette_id, count(*) FROM hides GROUP BY silhouette_id;
+#     human_default | 7
+#   PRAGMA user_version; -> 1
+# boot a second time: counts unchanged, user_version still 1
+```
+
+Then open one of those migrated hunts on a phone and confirm the paint still
+lines up with the body — that is the only check that proves the migration did
+what it was for.
+
 **API:**
 
 ```bash
 curl -s -X POST localhost:3000/api/hides -H 'Content-Type: application/json' \
   -d '{"markerId":1,"silhouetteId":"human_z","transform":{"x":0,"y":0,"rot":0,"w":.3,"h":.3},"paintDataUrl":"data:image/png;base64,…"}'
 # → 400, not a persisted broken hunt
-curl -s localhost:3000/api/hides/<id> | grep silhouetteId    # round-trips the chosen pose
+curl -s -X POST … -d '{… "silhouetteId":"human_default" …}'   # → 400: readable, not writable (D6)
+curl -s localhost:3000/api/hides/<id> | grep silhouetteId     # round-trips the chosen pose
+curl -s localhost:3000/api/stats/poses                        # 9.4.1 — one row per pose seen
 ```
 
 **Device — the parts a Node suite cannot reach:**
@@ -602,17 +799,21 @@ curl -s localhost:3000/api/hides/<id> | grep silhouetteId    # round-trips the c
 2. Select `human_c` (the wide one) at a large scale — *Too large to hide* appears
    and Lock is disabled; scale down and it clears.
 3. Double-tap two poses fast — no flicker, no stale mask, the last tap wins.
-4. PAINT: paint in the preview — colour appears **in the preview and on the
+4. PAINT, before any stroke: the body reads as flat grey `#b1b1b1` in **both** the
+   preview and on the marker (D9). If the two differ, the preview is lying and
+   §9.2.3's composition is wrong.
+5. PAINT: paint in the preview — colour appears **in the preview and on the
    marker** in the same frame.
-5. Point the camera away from the marker and keep painting — the preview still
+6. Point the camera away from the marker and keep painting — the preview still
    works (D4).
-6. Eyedropper: pick from the marker, paint in the preview with the picked colour.
-7. Rotate the silhouette 90° in PLACE, then paint — the preview stays upright and
+7. Eyedropper: pick from the marker, paint in the preview with the picked colour.
+8. Rotate the silhouette 90° in PLACE, then paint — the preview stays upright and
    the stroke lands where the finger went (D3).
-8. Save, open the hunt on a second phone — the seeker sees the **same pose** and
+9. Save, open the hunt on a second phone — the seeker sees the **same pose** and
    the same paint.
-9. Regression, carried forward from Phase 7: shake the phone hard while pointing
-   at the marker — the silhouette stays locked to the backdrop.
+10. Open a **pre-Phase-9 hunt** (migrated by B5) — its paint still lines up.
+11. Regression, carried forward from Phase 7: shake the phone hard while pointing
+    at the marker — the silhouette stays locked to the backdrop.
 
 # 6. Out of scope
 
@@ -621,8 +822,10 @@ curl -s localhost:3000/api/hides/<id> | grep silhouetteId    # round-trips the c
 | Pose after paint / undo | D1 keeps the mode machine linear; undo is a bigger feature than this phase |
 | Eraser | The paint canvas is opaque by invariant; an eraser means "repaint with base", worth doing but not here |
 | Per-pose default scale | Tempting for `human_c`, but the clamp already communicates the limit |
+| Per-pose `MAX_TAPS`, or any tuning | D11 / §9.4.3 — build the query, collect attempts, then decide |
 | New pose art | Four is the brief |
 | Translating `seek.html` | D7 — a language pass is its own change |
+| Global `#e44a24` → `#d45535` swap | D12 — a rebrand across six pages, not a HUD change |
 | Phase 8 white balance | Still gated on the two-lighting device test (`plan.md:293-297`) |
 
 # 7. Order and estimate
@@ -631,14 +834,18 @@ curl -s localhost:3000/api/hides/<id> | grep silhouetteId    # round-trips the c
 |---|---|---|---|
 | 1 | 9.0.1 `check-mask.js` rewrite | everything | 45 min |
 | 2 | 9.0.2 generator repoint | — | 5 min |
-| 3 | 9.1.5 server allowlist + list module | 9.1.3 | 20 min |
-| 4 | 9.1.2 `poseThumb.js` | 9.1.4, 9.2.3 | 40 min |
-| 5 | 9.1.1 PLACE markup + CSS | — | 30 min |
-| 6 | 9.1.3–9.1.4 pose state + switching | 3, 4 | 60 min |
-| 7 | 9.2.1–9.2.2 PAINT markup, CSS, palette trim | — | 40 min |
-| 8 | 9.2.3 preview canvas + pointer rebind | 4, 7 | 90 min |
-| 9 | 9.3 cleanup + `plan.md` index | — | 15 min |
-| 10 | Verification pass (§5) | all | 60 min |
+| 3 | **9.0.3 `user_version` migration (B5)** | **must precede 6** | 25 min |
+| 4 | 9.1.5 server allowlist + list module | 9.1.3 | 20 min |
+| 5 | 9.1.2 `poseThumb.js` | 9.1.4, 9.2.3 | 40 min |
+| 6 | 9.1.1 PLACE markup + CSS | — | 30 min |
+| 7 | 9.1.3–9.1.4 pose state + switching | 3, 4, 5 | 60 min |
+| 8 | 9.2.1–9.2.2 PAINT markup, CSS, palette trim, `BASE_COLOR` | — | 45 min |
+| 9 | 9.2.3 preview canvas + pointer rebind | 5, 8 | 90 min |
+| 10 | 9.4 per-pose stats query + table | — | 45 min |
+| 11 | 9.3 cleanup | — | 10 min |
+| 12 | Verification pass (§5) | all | 70 min |
 
-Steps 1–2 are the gate. Steps 5 and 7 are pure markup and can run in parallel
-with 3–4 if two people are on this.
+Steps 1–3 are the gate; **3 is the one with a deadline** — once a real `human_a`
+can be written, old rows are indistinguishable from new ones and the migration
+becomes guesswork. Steps 6, 8 and 10 are independent and can run in parallel with
+4–5 if more than one person is on this.
