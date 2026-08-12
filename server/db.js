@@ -62,6 +62,15 @@ SET status = CASE
 END;
 `);
 
+// --- One-time migrations (guarded on PRAGMA user_version) ------------------
+// Phase 9 renamed the generated default body to human_default and gave
+// 'human_a' to new hand-drawn art. Rows written before that point were painted
+// against the old shape and must follow it, or their camouflage is nonsense.
+if (db.prepare('PRAGMA user_version').get().user_version < 1) {
+  db.exec(`UPDATE hides SET silhouette_id = 'human_default' WHERE silhouette_id = 'human_a';`);
+  db.exec('PRAGMA user_version = 1');
+}
+
 // --- Prepared statements ---------------------------------------------------
 // Grouped by table; reused across requests. node:sqlite .run() returns
 // { changes, lastInsertRowid }; .get()/.all() return plain objects.
