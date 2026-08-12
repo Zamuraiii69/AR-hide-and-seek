@@ -299,6 +299,13 @@ POST metadata → PUT image → PUT `.mind` (`new Blob([bytes])`)
 ใส่ที่ `material.color` (เพราะ `MeshBasicMaterial` คำนวณ `diffuse = color * map`)
 คำนวณใหม่ทุก 1 วินาที และ lerp เข้าหาค่าใหม่เพื่อไม่ให้กระพริบตอนกล้อง auto-exposure ไล่
 
+### Phase 9 — Pose selection + HUD paint preview
+
+แผนงานละเอียดอยู่ที่ [`plan-phase9.md`](plan-phase9.md) — เลือกท่าทาง 4 แบบในโหมด
+PLACE, จานสีเหลือ 2 แถว, และย้ายการระบายสีจากจอ AR ไปลง preview canvas ใน HUD
+(อ้างอิง `docs/img-ref/UI_1_1.png`, `UI_2_1.png`) ไม่เกี่ยวกับ Phase 8 และไม่แตะ
+การตัดสินใจของ Phase 8
+
 ---
 
 ## ความเสี่ยงที่ต้องรู้ล่วงหน้า
