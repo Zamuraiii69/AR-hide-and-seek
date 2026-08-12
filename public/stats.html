@@ -26,6 +26,12 @@
     .legend .hit::before { background:#1d8a4c; }
     canvas { display:block; width:100%; height:auto; background:#ffffff; border:1px solid #e2e3df; }
     #empty, #status { color:#5f6870; padding:16px 0; }
+    .pose-stats { padding-top:22px; border-top:1px solid #e2e3df; margin-top:22px; }
+    .pose-stats table { width:100%; border-collapse:collapse; margin-top:12px; }
+    .pose-stats th, .pose-stats td { padding:8px 10px; border:1px solid #e2e3df; text-align:left; }
+    .pose-stats th { color:#5f6870; font-size:.8rem; font-weight:600; }
+    .pose-stats td { font-variant-numeric:tabular-nums; color:#16181a; }
+    #pose-stats-empty { color:#5f6870; padding:10px 0 0; }
     @media (max-width:620px) { header { display:block; } header .button { width:100%; margin-top:14px; } .metrics { grid-template-columns:1fr 1fr; } .metric:nth-child(2) { border-right:0; } .metric:nth-child(-n+2) { border-bottom:1px solid #e2e3df; } .heatmap-head { align-items:flex-start; flex-direction:column; } }
   </style>
 </head>
@@ -46,6 +52,15 @@
       <canvas id="heatmap" hidden></canvas>
       <p id="empty" hidden>ยังไม่มีการค้นหาที่บันทึกไว้</p>
       <p id="status" role="alert"></p>
+    </section>
+    <section class="pose-stats">
+      <h2>Pose balance</h2>
+      <table id="pose-stats-table" hidden>
+        <thead><tr><th>Pose</th><th>Attempts</th><th>Hides</th><th>Found rate</th><th>Avg taps</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <p id="pose-stats-empty" hidden>No seeks recorded yet.</p>
+      <p id="pose-stats-status" role="alert"></p>
     </section>
   </main>
   <script type="module" src="/js/statsApp.js"></script>

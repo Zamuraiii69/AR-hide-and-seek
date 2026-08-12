@@ -37,6 +37,48 @@ function drawHeatmap(image, seeks) {
   canvas.hidden = false;
 }
 
+function renderPoseStats(poses) {
+  const table = $('pose-stats-table');
+  const empty = $('pose-stats-empty');
+  if (!poses.length) {
+    empty.hidden = false;
+    table.hidden = true;
+    return;
+  }
+  const tbody = table.querySelector('tbody');
+  tbody.innerHTML = '';
+  for (const pose of poses) {
+    const row = document.createElement('tr');
+    const cells = [
+      pose.poseId,
+      pose.attempts,
+      pose.hides,
+      `${Math.round(pose.foundRate * 100)}%`,
+      pose.avgTaps === null ? '-' : pose.avgTaps,
+    ];
+    for (const value of cells) {
+      const cell = document.createElement('td');
+      cell.textContent = value;
+      row.appendChild(cell);
+    }
+    tbody.appendChild(row);
+  }
+  table.hidden = false;
+  empty.hidden = true;
+}
+
+// Independent of ?hide= — always shows every pose's global aggregate, so it
+// fetches on its own rather than riding along with boot()'s hide-specific
+// calls (a bad/missing ?hide= must not prevent this table from rendering).
+async function loadPoseStats() {
+  try {
+    const { poses } = await getJSON('/api/stats/poses');
+    renderPoseStats(poses);
+  } catch (error) {
+    $('pose-stats-status').textContent = error.message;
+  }
+}
+
 async function boot() {
   if (!Number.isInteger(hideId) || hideId < 1) throw new Error('ลิงก์นี้ไม่มีรหัสที่ซ่อน (?hide=)');
   $('hunt-link').href = `/seek.html?hide=${hideId}`;
@@ -66,3 +108,4 @@ boot().catch((error) => {
   $('subtitle').textContent = 'เปิดสถิติไม่สำเร็จ';
   $('status').textContent = error.message;
 });
+loadPoseStats();

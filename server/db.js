@@ -119,6 +119,18 @@ const stmt = {
       ORDER BY created_at DESC, id DESC
       LIMIT ?`),
   },
+  stats: {
+    byPose: db.prepare(`
+      SELECT h.silhouette_id                       AS poseId,
+             count(*)                              AS attempts,
+             sum(s.found)                          AS found,
+             avg(s.taps_used)                      AS avgTaps,
+             avg(s.duration_ms)                    AS avgDurationMs,
+             count(DISTINCT h.id)                  AS hides
+      FROM seeks s JOIN hides h ON h.id = s.hide_id
+      GROUP BY h.silhouette_id
+      ORDER BY attempts DESC`),
+  },
 };
 
 // Manual transaction helper (no db.transaction() in node:sqlite).

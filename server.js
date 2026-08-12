@@ -14,6 +14,7 @@ const { db } = require('./server/db');
 const markersRouter = require('./server/routes/markers');
 const hidesRouter = require('./server/routes/hides');
 const seeksRouter = require('./server/routes/seeks');
+const statsRouter = require('./server/routes/stats');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -39,6 +40,7 @@ app.use('/media', express.static(MEDIA_DIR, {
 app.use('/api/markers', markersRouter);
 app.use('/api/hides', hidesRouter);
 app.use('/api/seeks', seeksRouter);
+app.use('/api/stats', statsRouter);
 
 // Health check
 app.get('/health', (_req, res) => {
