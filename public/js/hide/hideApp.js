@@ -24,6 +24,8 @@ import { bindPointer } from '../core/pointer.js';
 import { createPlacement } from '../core/placement.js';
 import { createBrush } from '../core/brush.js';
 import { loadMarkerSampler } from '../core/markerSampler.js';
+import { POSE_IDS, silhouetteUrl } from '../core/poses.js';
+import { poseThumbnail } from '../core/poseThumb.js';
 import { extractPalette, gridPalette, FALLBACK_PALETTE } from '../core/palette.js';
 import { setBusy, setMode, setText } from '../core/hud.js';
 import { getDemoContext } from '../demoContext.js';
@@ -31,7 +33,7 @@ import { shareAndHandleResult } from './shareResult.js';
 
 const $ = (id) => document.getElementById(id);
 
-const SILHOUETTE_URL = '/assets/silhouettes/human_a.png';
+const DEFAULT_POSE = POSE_IDS[0];            // 'human_a'
 const ZONE_GRID = 4;              // 4×4 zones — the row that actually helps
 const PICKED_MAX = 6;             // most-recent-first, enough to work from
 const ASPECT_TOLERANCE = 0.01;    // db vs image aspect: wider than this is a bug
@@ -47,6 +49,7 @@ const state = {
   dirty: false,
   fits: true,
   hidden: false,
+  pose: DEFAULT_POSE,
 };
 
 const ndc = new THREE.Vector2();
@@ -94,9 +97,10 @@ async function boot() {
 
   // The sampler is optional by design (§4.5): a marker with no image, or a decode
   // failure, degrades to the fallback palette — it must never break the page.
-  const [mask, silhouette, sampler] = await Promise.all([
-    loadMask(SILHOUETTE_URL),
-    createSilhouette({ maskUrl: SILHOUETTE_URL }),
+  let mask;
+  const [maskResult, silhouette, sampler] = await Promise.all([
+    loadMask(silhouetteUrl(state.pose)),
+    createSilhouette({ maskUrl: silhouetteUrl(state.pose) }),
     marker.imageUrl
       ? loadMarkerSampler(marker.imageUrl).catch((error) => {
         console.warn('marker sampler unavailable:', error.message);
@@ -104,6 +108,7 @@ async function boot() {
       })
       : null,
   ]);
+  mask = maskResult;
 
   // marker.aspect defines anchor space, so it is what the eyedropper maps with.
   // The sampler derives the same number from the pixels it just decoded; if the
@@ -124,6 +129,10 @@ async function boot() {
     onLost: () => setStatus('Point the camera at the marker.'),
   });
 
+  // Fire-and-forget: thumbnail decoding must never delay first paint. The row
+  // populates itself whenever its sequential decode loop finishes.
+  buildPoseRow().catch((error) => console.error('pose row build failed:', error));
+
   // The backdrop must be here as well as in seek mode, not just there: if the
   // hider matches the live camera image while the seeker sees the source file,
   // the camouflage is tuned against the wrong target and the work is wasted.
@@ -134,7 +143,7 @@ async function boot() {
   if (backdrop) session.group.add(backdrop.mesh);
   session.group.add(silhouette.mesh);
 
-  const placement = createPlacement(silhouette.mesh, marker.aspect, mask.bbox);
+  let placement = createPlacement(silhouette.mesh, marker.aspect, mask.bbox);
   const brush = createBrush(silhouette.pctx, silhouette.paintRes, () => { state.dirty = true; });
 
   // --- transform ------------------------------------------------------------
@@ -153,6 +162,71 @@ async function boot() {
 
   $('scale').addEventListener('input', applyTransform);
   $('rotate').addEventListener('input', applyTransform);
+
+  // --- pose -------------------------------------------------------------------
+  // Pose switching is PLACE-only by construction: the pose row is only visible
+  // in PLACE mode (CSS .place-only), and the mode machine never returns to
+  // PLACE from PAINT/REVIEW, so no extra guard is needed here (D1).
+
+  let switching = false;
+
+  async function switchPose(id) {
+    if (switching || id === state.pose) return;
+    switching = true;
+    $('pose-row').querySelectorAll('.pose').forEach((b) => { b.disabled = true; });
+    try {
+      const url = silhouetteUrl(id);
+      await silhouette.setMask(url);              // 1. new texture on the existing mesh
+      mask = await loadMask(url);                  // 2. reload the hit-test mask
+      placement = createPlacement(silhouette.mesh, marker.aspect, mask.bbox); // 3. rebuild, fresh bbox
+      state.pose = id;
+      applyTransform();                             // 4. re-clamp (scale/rotation kept, position re-clamped)
+      silhouette.fillBase();                        // 5. paint canvas back to 100% opaque base for the new pose
+      $('pose-row').querySelectorAll('.pose').forEach((b) => {
+        b.setAttribute('aria-pressed', String(b.dataset.poseId === id));
+      });
+    } finally {
+      switching = false;
+      $('pose-row').querySelectorAll('.pose').forEach((b) => { b.disabled = false; });
+    }
+  }
+
+  function poseLetter(id) {
+    return id.split('_').pop().toUpperCase();   // 'human_a' -> 'A'
+  }
+
+  async function buildPoseRow() {
+    const row = $('pose-row');
+    const buttons = [];
+    for (const id of POSE_IDS) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'pose';
+      button.dataset.poseId = id;
+      button.setAttribute('aria-pressed', String(id === state.pose));
+      button.setAttribute('aria-label', `Pose ${poseLetter(id)}`);
+      button.addEventListener('click', () => switchPose(id));
+      buttons.push(button);
+    }
+    row.replaceChildren(...buttons);
+
+    // Decode thumbnails SEQUENTIALLY (not Promise.all) to keep peak memory flat
+    // on a low-end phone; fall back to the pose letter if a thumbnail fails to
+    // decode — a pose the hider cannot preview is still better than one they
+    // cannot select.
+    for (const button of buttons) {
+      try {
+        const dataUrl = await poseThumbnail(silhouetteUrl(button.dataset.poseId), 64);
+        const glyph = document.createElement('span');
+        glyph.className = 'pose-glyph';
+        glyph.style.setProperty('--thumb', `url(${dataUrl})`);
+        button.replaceChildren(glyph);
+      } catch (error) {
+        console.warn(`pose thumbnail failed for ${button.dataset.poseId}:`, error.message);
+        button.textContent = poseLetter(button.dataset.poseId);
+      }
+    }
+  }
 
   // --- palette --------------------------------------------------------------
 
@@ -310,7 +384,7 @@ async function boot() {
     try {
       const result = await postJSON('/api/hides', {
         markerId,
-        silhouetteId: 'human_a',
+        silhouetteId: state.pose,
         transform: {
           x: silhouette.mesh.position.x,
           y: silhouette.mesh.position.y,

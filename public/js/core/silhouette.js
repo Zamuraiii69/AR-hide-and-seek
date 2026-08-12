@@ -23,7 +23,7 @@ const _texLoader = new THREE.TextureLoader();
  */
 export async function createSilhouette({ maskUrl, paintRes = PAINT_RES, baseColor = BASE_COLOR } = {}) {
   // --- alpha mask texture (keep NoColorSpace; SRGB would shift the alpha edge) ---
-  const maskTexture = await _texLoader.loadAsync(maskUrl);
+  let maskTexture = await _texLoader.loadAsync(maskUrl);
   maskTexture.generateMipmaps = false;
   maskTexture.minFilter = maskTexture.magFilter = THREE.LinearFilter;
 
@@ -61,6 +61,19 @@ export async function createSilhouette({ maskUrl, paintRes = PAINT_RES, baseColo
     mesh.rotation.z = rot;
   }
 
+  // Swap the alpha mask texture on the existing mesh (pose switch) without
+  // rebuilding the silhouette. Assign the new texture first, dispose the old
+  // one second — reversing the order risks a frame rendered with no alpha map.
+  async function setMask(url) {
+    const next = await _texLoader.loadAsync(url);
+    next.generateMipmaps = false;
+    next.minFilter = next.magFilter = THREE.LinearFilter;
+    material.alphaMap = next;
+    material.needsUpdate = true;
+    maskTexture.dispose();   // dispose the OLD texture — AFTER assigning the new one, never before (a flash of untextured frame)
+    maskTexture = next;
+  }
+
   function fillBase(color = baseColor) {
     pctx.fillStyle = color;
     pctx.fillRect(0, 0, paintRes, paintRes);
@@ -93,6 +106,6 @@ export async function createSilhouette({ maskUrl, paintRes = PAINT_RES, baseColo
 
   return {
     mesh, material, paintCanvas, pctx, paintTexture, maskTexture, paintRes,
-    setTransform, fillBase, loadPaint, getPaintDataUrl, dispose,
+    setTransform, setMask, fillBase, loadPaint, getPaintDataUrl, dispose,
   };
 }
