@@ -18,7 +18,7 @@ import { createArSession, filterFromSearch } from '../core/arSession.js';
 import { createSilhouette } from '../core/silhouette.js';
 import { createBackdrop } from '../core/backdrop.js';
 import { loadMask } from '../core/mask.js';
-import { screenToNDC, pickAnchorPlane, localToMeshUV, localToMarkerUV } from '../core/anchorPick.js';
+import { screenToNDC, pickAnchorPlane, localToMarkerUV } from '../core/anchorPick.js';
 import { getJSON, postJSON } from '../core/api.js';
 import { bindPointer } from '../core/pointer.js';
 import { createPlacement } from '../core/placement.js';
@@ -57,7 +57,7 @@ const markerUv = new THREE.Vector2();
 
 const STATUS = {
   PLACE: 'Drag, scale, and rotate the silhouette.',
-  PAINT: 'Paint directly on the silhouette.',
+  PAINT: 'Paint on the preview. Use the eyedropper to pick marker colours.',
   REVIEW: 'Compare it with the real marker, then save.',
 };
 
@@ -142,7 +142,10 @@ async function boot() {
   session.group.add(silhouette.mesh);
 
   let placement = createPlacement(silhouette.mesh, marker.aspect, mask.bbox);
-  const brush = createBrush(silhouette.pctx, silhouette.paintRes, () => { state.dirty = true; });
+  const brush = createBrush(silhouette.pctx, silhouette.paintRes, () => {
+    state.dirty = true;
+    requestPreviewRedraw();
+  });
 
   // --- transform ------------------------------------------------------------
 
@@ -180,6 +183,7 @@ async function boot() {
       state.pose = id;
       applyTransform();                             // 4. re-clamp (scale/rotation kept, position re-clamped)
       silhouette.fillBase();                        // 5. paint canvas back to 100% opaque base for the new pose
+      requestPreviewRedraw();
       $('pose-row').querySelectorAll('.pose').forEach((b) => {
         b.setAttribute('aria-pressed', String(b.dataset.poseId === id));
       });
@@ -293,6 +297,93 @@ async function boot() {
     setStatus(`Picked ${color.hex} — keep painting.`);
   }
 
+  // --- preview ----------------------------------------------------------------
+  // The preview canvas is mesh-UV space (512², square, upright): a masked blit of
+  // the paint canvas — white fill, then the paint, then clipped to the pose's
+  // shape via destination-in with a per-pose alpha mask. Composited offscreen
+  // first so the visible canvas never shows a white-only mid-composite frame.
+
+  const previewCanvas = $('paint-preview');
+  let maskAlphaImg = null;
+  let maskAlphaPose = null;
+  let offscreenBody = null;
+  let redrawScheduled = false;
+
+  async function ensureMaskAlpha() {
+    if (maskAlphaPose === state.pose && maskAlphaImg) return;
+    const dataUrl = await poseThumbnail(silhouetteUrl(state.pose), silhouette.paintRes);
+    const img = new Image();
+    await new Promise((resolve, reject) => {
+      img.onload = resolve;
+      img.onerror = () => reject(new Error('preview mask-alpha decode failed'));
+      img.src = dataUrl;
+    });
+    maskAlphaImg = img;
+    maskAlphaPose = state.pose;
+  }
+
+  function drawPreview() {
+    if (!maskAlphaImg) return;   // not ready yet — a later redraw will catch up
+    const size = silhouette.paintRes;
+    if (!offscreenBody) {
+      offscreenBody = document.createElement('canvas');
+      offscreenBody.width = offscreenBody.height = size;
+    }
+    const bctx = offscreenBody.getContext('2d');
+    bctx.clearRect(0, 0, size, size);
+    bctx.globalCompositeOperation = 'source-over';
+    bctx.drawImage(silhouette.paintCanvas, 0, 0, size, size);
+    bctx.globalCompositeOperation = 'destination-in';
+    bctx.drawImage(maskAlphaImg, 0, 0, size, size);
+
+    const pctx2 = previewCanvas.getContext('2d');
+    pctx2.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+    pctx2.fillStyle = '#ffffff';
+    pctx2.fillRect(0, 0, previewCanvas.width, previewCanvas.height);
+    pctx2.drawImage(offscreenBody, 0, 0, previewCanvas.width, previewCanvas.height);
+  }
+
+  function requestPreviewRedraw() {
+    if (redrawScheduled) return;
+    redrawScheduled = true;
+    requestAnimationFrame(async () => {
+      redrawScheduled = false;
+      try { await ensureMaskAlpha(); } catch (error) { console.error(error); return; }
+      drawPreview();
+    });
+  }
+
+  function sizePreviewCanvas() {
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const w = Math.round(previewCanvas.clientWidth * dpr);
+    if (previewCanvas.width !== w || previewCanvas.height !== w) {
+      previewCanvas.width = previewCanvas.height = w;
+    }
+    requestPreviewRedraw();
+  }
+
+  window.addEventListener('resize', sizePreviewCanvas);
+
+  function toPreviewUV(event, out) {
+    const r = previewCanvas.getBoundingClientRect();
+    out.x = (event.clientX - r.left) / r.width;
+    out.y = 1 - (event.clientY - r.top) / r.height;      // three's v=0 is the bottom
+  }
+
+  bindPointer(previewCanvas, {
+    start(e) {
+      if (state.mode !== 'PAINT' || state.tool !== 'BRUSH') return;
+      toPreviewUV(e, meshUv);
+      if (mask.isBody(meshUv.x, meshUv.y)) brush.start(meshUv);
+    },
+    move(e) {
+      if (state.mode !== 'PAINT' || state.tool !== 'BRUSH') return;
+      toPreviewUV(e, meshUv);
+      if (meshUv.x >= 0 && meshUv.x <= 1 && meshUv.y >= 0 && meshUv.y <= 1) brush.move(meshUv);
+    },
+    end() { brush.end(); },
+  });
+
   // --- pointer --------------------------------------------------------------
 
   function hit(event) {
@@ -305,36 +396,24 @@ async function boot() {
       if (!session.visible) return;
       const p = hit(event);
       if (!p) return;
-      if (state.mode === 'PLACE') {
-        placement.start(p);
-        return;
-      }
-      if (state.mode !== 'PAINT' || state.tool !== 'BRUSH') return;
-      localToMeshUV(p, silhouette.mesh, meshUv);
-      if (mask.isBody(meshUv.x, meshUv.y)) brush.start(meshUv);
+      if (state.mode === 'PLACE') placement.start(p);
     },
 
     move(event) {
       if (!session.visible) return;
       const p = hit(event);
       if (!p) return;
-      if (state.mode === 'PLACE') {
-        // null = "not dragging", which is not the same as "does not fit".
-        const fits = placement.move(p);
-        if (fits !== null) {
-          state.fits = fits;
-          updateFit();
-        }
-        return;
+      if (state.mode !== 'PLACE') return;
+      // null = "not dragging", which is not the same as "does not fit".
+      const fits = placement.move(p);
+      if (fits !== null) {
+        state.fits = fits;
+        updateFit();
       }
-      if (state.mode !== 'PAINT' || state.tool !== 'BRUSH') return;
-      localToMeshUV(p, silhouette.mesh, meshUv);
-      if (meshUv.x >= 0 && meshUv.x <= 1 && meshUv.y >= 0 && meshUv.y <= 1) brush.move(meshUv);
     },
 
     end(event, info) {
       placement.end();
-      brush.end();
       if (!session.visible) return;
       if (state.mode === 'PAINT' && state.tool === 'EYEDROPPER' && info?.tap) eyedrop(event);
     },
@@ -349,10 +428,10 @@ async function boot() {
   // --- mode buttons ---------------------------------------------------------
 
   $('lock').addEventListener('click', () => {
-    if (state.fits) setState('PAINT');
+    if (state.fits) { setState('PAINT'); sizePreviewCanvas(); }
   });
   $('review').addEventListener('click', () => setState('REVIEW'));
-  $('edit').addEventListener('click', () => setState('PAINT'));
+  $('edit').addEventListener('click', () => { setState('PAINT'); sizePreviewCanvas(); });
   // Peek hides the silhouette but NOT the backdrop: the seeker sees the backdrop
   // too, so "what is left when the model goes away" is the right comparison.
   $('peek').addEventListener('click', () => {
