@@ -147,5 +147,26 @@ for (const fileName of files) {
   totalFailures += checkFile(filePath, fileName);
 }
 
-console.log(totalFailures === 0 ? '\nALL PASS' : `\n${totalFailures} FAILED`);
-process.exit(totalFailures === 0 ? 0 : 1);
+// poses.js (browser ESM) vs gameRules.js (CommonJS) can't be linked with a
+// shared require/import, so this is the parity check that keeps them from
+// silently drifting apart. Dynamic import() works from a CommonJS file even
+// though require() can't reach an ESM module directly — that's why the
+// summary + exit below have to live inside this async IIFE instead of after
+// the synchronous loop above: exiting early would race the import.
+(async () => {
+  const { POSE_IDS } = await import('../public/js/core/poses.js');
+  const { SILHOUETTE_IDS } = require('../server/gameRules.js');
+
+  const idsMatch = POSE_IDS.length === SILHOUETTE_IDS.length
+    && POSE_IDS.every((id, i) => id === SILHOUETTE_IDS[i]);
+  console.log(`${idsMatch ? 'PASS' : 'FAIL'}  poses.js/gameRules.js parity  — POSE_IDS: [${POSE_IDS.join(',')}]  SILHOUETTE_IDS: [${SILHOUETTE_IDS.join(',')}]`);
+  if (!idsMatch) totalFailures++;
+
+  const missingFile = POSE_IDS.filter((id) => !fs.existsSync(path.join(silhouetteDir, `${id}.png`)));
+  const filesOk = missingFile.length === 0;
+  console.log(`${filesOk ? 'PASS' : 'FAIL'}  every POSE_IDS entry resolves to a file  — ${filesOk ? 'ok' : 'missing: ' + missingFile.join(',')}`);
+  if (!filesOk) totalFailures++;
+
+  console.log(totalFailures === 0 ? '\nALL PASS' : `\n${totalFailures} FAILED`);
+  process.exit(totalFailures === 0 ? 0 : 1);
+})();

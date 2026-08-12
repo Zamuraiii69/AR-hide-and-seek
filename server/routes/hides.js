@@ -1,7 +1,7 @@
 const express = require('express');
 const { stmt, tx } = require('../db');
 const storage = require('../storage');
-const { MAX_TAPS } = require('../gameRules');
+const { MAX_TAPS, SILHOUETTE_IDS } = require('../gameRules');
 const { statsFor } = require('../seekStats');
 
 const router = express.Router();
@@ -19,6 +19,7 @@ function validTransform(value) {
 
 router.post('/', (req, res, next) => {
   const { markerId, hiderName, silhouetteId = 'human_a', transform, paintDataUrl } = req.body || {};
+  if (!SILHOUETTE_IDS.includes(silhouetteId)) return fail(res, 400, 'silhouetteId not recognised');
   const id = Number(markerId);
   const marker = stmt.markers.byId.get(id);
   if (!marker) return fail(res, 404, 'marker not found');
