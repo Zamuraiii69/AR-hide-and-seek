@@ -1,4 +1,4 @@
-// tools/gen-silhouette.js — generate public/assets/silhouettes/human_a.png
+// tools/gen-silhouette.js — generate public/assets/silhouettes/human_default.png
 //
 // A 1024² OPAQUE PNG: white human body on black background, feathered ~4px edge.
 // three's alphaMap samples the GREEN channel, so the body must be white(255)
@@ -105,6 +105,6 @@ function encodePNG(rgb, w, h) {
 // --- write -----------------------------------------------------------------
 const outDir = path.join(__dirname, '..', 'public', 'assets', 'silhouettes');
 fs.mkdirSync(outDir, { recursive: true });
-const outPath = path.join(outDir, 'human_a.png');
+const outPath = path.join(outDir, 'human_default.png');
 fs.writeFileSync(outPath, encodePNG(buildRGB(), RES, RES));
 console.log(`wrote ${outPath} (${RES}x${RES})`);
