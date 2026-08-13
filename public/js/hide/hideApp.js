@@ -178,8 +178,12 @@ async function boot() {
     $('pose-row').querySelectorAll('.pose').forEach((b) => { b.disabled = true; });
     try {
       const url = silhouetteUrl(id);
-      await silhouette.setMask(url);              // 1. new texture on the existing mesh
-      mask = await loadMask(url);                  // 2. reload the hit-test mask
+      // Decode the hit-test mask FIRST, swap the visible texture second: if the
+      // decode fails we have changed nothing, instead of leaving the mesh
+      // showing a pose that `mask`, `placement` and `state.pose` know nothing about.
+      const nextMask = await loadMask(url);       // 1. hit-test mask for the new pose
+      await silhouette.setMask(url);              // 2. new texture on the existing mesh
+      mask = nextMask;
       placement = createPlacement(silhouette.mesh, marker.aspect, mask.bbox); // 3. rebuild, fresh bbox
       state.pose = id;
       applyTransform();                             // 4. re-clamp (scale/rotation kept, position re-clamped)
@@ -313,24 +317,47 @@ async function boot() {
   const previewCanvas = $('paint-preview');
   let maskAlphaImg = null;
   let maskAlphaPose = null;
+  let maskAlphaPending = null;   // { pose, promise } — dedupes concurrent decodes
   let offscreenBody = null;
   let redrawScheduled = false;
 
-  async function ensureMaskAlpha() {
-    if (maskAlphaPose === state.pose && maskAlphaImg) return;
-    const dataUrl = await poseThumbnail(silhouetteUrl(state.pose), silhouette.paintRes);
-    const img = new Image();
-    await new Promise((resolve, reject) => {
-      img.onload = resolve;
-      img.onerror = () => reject(new Error('preview mask-alpha decode failed'));
-      img.src = dataUrl;
+  function decodeMaskAlpha(pose) {
+    return poseThumbnail(silhouetteUrl(pose), silhouette.paintRes).then((dataUrl) => {
+      const img = new Image();
+      return new Promise((resolve, reject) => {
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error('preview mask-alpha decode failed'));
+        img.src = dataUrl;
+      });
     });
+  }
+
+  /**
+   * Ensure `maskAlphaImg` holds the CURRENT pose's alpha mask. Returns false if
+   * the decode it awaited belongs to a pose that has since been switched away
+   * from — the pose id is captured before the await and re-checked after, or a
+   * fast double-tap in PLACE caches the losing pose's mask under the winner's
+   * id and the preview clips every stroke to the wrong body forever.
+   */
+  async function ensureMaskAlpha() {
+    const pose = state.pose;
+    if (maskAlphaPose === pose && maskAlphaImg) return true;
+    if (maskAlphaPending?.pose !== pose) {
+      // Drop a rejected decode from the cache so the next redraw retries it
+      // instead of re-awaiting the same failure for the rest of the session.
+      const pending = { pose, promise: decodeMaskAlpha(pose) };
+      pending.promise.catch(() => { if (maskAlphaPending === pending) maskAlphaPending = null; });
+      maskAlphaPending = pending;
+    }
+    const img = await maskAlphaPending.promise;   // read before any await: never null here
+    if (state.pose !== pose) return false;   // stale — the winning switch owns the cache
     maskAlphaImg = img;
-    maskAlphaPose = state.pose;
+    maskAlphaPose = pose;
+    return true;
   }
 
   function drawPreview() {
-    if (!maskAlphaImg) return;   // not ready yet — a later redraw will catch up
+    if (!maskAlphaImg || maskAlphaPose !== state.pose) return;   // not ready yet — a later redraw will catch up
     const size = silhouette.paintRes;
     if (!offscreenBody) {
       offscreenBody = document.createElement('canvas');
@@ -355,7 +382,9 @@ async function boot() {
     redrawScheduled = true;
     requestAnimationFrame(async () => {
       redrawScheduled = false;
-      try { await ensureMaskAlpha(); } catch (error) { console.error(error); return; }
+      let fresh;
+      try { fresh = await ensureMaskAlpha(); } catch (error) { console.error(error); return; }
+      if (!fresh) return;   // a newer pose won; its own redraw will paint
       drawPreview();
     });
   }
@@ -371,18 +400,25 @@ async function boot() {
 
   window.addEventListener('resize', sizePreviewCanvas);
 
+  // The rect is read once per stroke, not once per sample: bindPointer replays
+  // every coalesced pointer sample through move(), and getBoundingClientRect()
+  // forces a synchronous layout each call. The panel cannot move mid-stroke —
+  // the page is position:fixed with no scrolling — so one read per stroke is exact.
+  let previewRect = null;
+
   bindPointer(previewCanvas, {
     start(e) {
       if (state.mode !== 'PAINT' || state.tool !== 'BRUSH') return;
-      toPreviewUV(e.clientX, e.clientY, previewCanvas.getBoundingClientRect(), meshUv);
+      previewRect = previewCanvas.getBoundingClientRect();
+      toPreviewUV(e.clientX, e.clientY, previewRect, meshUv);
       if (mask.isBody(meshUv.x, meshUv.y)) brush.start(meshUv);
     },
     move(e) {
-      if (state.mode !== 'PAINT' || state.tool !== 'BRUSH') return;
-      toPreviewUV(e.clientX, e.clientY, previewCanvas.getBoundingClientRect(), meshUv);
+      if (!previewRect || state.mode !== 'PAINT' || state.tool !== 'BRUSH') return;
+      toPreviewUV(e.clientX, e.clientY, previewRect, meshUv);
       if (meshUv.x >= 0 && meshUv.x <= 1 && meshUv.y >= 0 && meshUv.y <= 1) brush.move(meshUv);
     },
-    end() { brush.end(); },
+    end() { previewRect = null; brush.end(); },
   });
 
   // --- pointer --------------------------------------------------------------
@@ -392,19 +428,21 @@ async function boot() {
     return pickAnchorPlane(ndc, session.camera, session.group, point);
   }
 
+  // Since painting moved to the preview, PLACE is the only mode that needs a ray
+  // — the eyedropper casts its own in eyedrop(). So the mode check comes BEFORE
+  // hit(), or every coalesced pointermove in PAINT/REVIEW pays for a raycast
+  // whose result is thrown away.
   bindPointer(session.renderer.domElement, {
     start(event) {
-      if (!session.visible) return;
+      if (state.mode !== 'PLACE' || !session.visible) return;
       const p = hit(event);
-      if (!p) return;
-      if (state.mode === 'PLACE') placement.start(p);
+      if (p) placement.start(p);
     },
 
     move(event) {
-      if (!session.visible) return;
+      if (state.mode !== 'PLACE' || !session.visible) return;
       const p = hit(event);
       if (!p) return;
-      if (state.mode !== 'PLACE') return;
       // null = "not dragging", which is not the same as "does not fit".
       const fits = placement.move(p);
       if (fits !== null) {

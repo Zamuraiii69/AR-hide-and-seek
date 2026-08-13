@@ -45,6 +45,11 @@ After a hunt, open `/stats.html?hide=<id>` to see attempts, found rate, average
 taps, and a marker-space tap overlay. Hit and miss coordinates are stored with
 each seek attempt; the view displays at most the latest 200 attempts.
 
+The same page ends with a **Pose balance** table — attempts, hides, found rate,
+and average taps aggregated per silhouette across every hunt. It is read-only
+instrumentation for deciding whether the four poses play differently; it is not
+wired to any difficulty tuning.
+
 ## Verification
 
 ```bash

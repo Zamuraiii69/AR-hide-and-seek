@@ -70,7 +70,7 @@ function checkFile(filePath, fileName) {
 
   try {
     const decoded = decode(filePath);
-    const { width, height, channels, color, data } = decoded;
+    const { width, height, color } = decoded;
 
     // Assertion 1: 8-bit, non-interlaced, colour type ∈ {0,2,4,6}
     const colorTypeValid = [0, 2, 4, 6].includes(color);
@@ -78,15 +78,18 @@ function checkFile(filePath, fileName) {
     console.log(`${pass1 ? 'PASS' : 'FAIL'}  ${fileName}: 8-bit, non-interlaced, colour type ${color}`);
     if (!pass1) failures++;
 
-    // Extract green channel and compute statistics.
-    const greenPixels = [];
+    // Extract green channel and compute statistics. Counted in one pass rather
+    // than collected into an array — a 1024² asset is a million samples per file,
+    // and the assertions below only ever need the tallies.
+    const totalPx = width * height;
+    let bimodalPx = 0;
     let bodyPx = 0;
     let x0 = width, y0 = height, x1 = -1, y1 = -1;
 
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
         const g = getGreenChannel(decoded, x, y);
-        greenPixels.push(g);
+        if (g < 8 || g > 247) bimodalPx++;
 
         if (g > 127) {
           bodyPx++;
@@ -99,14 +102,13 @@ function checkFile(filePath, fileName) {
     }
 
     // Assertion 2: green channel is bimodal (≥95% < 8 or > 247).
-    const bimodalPixels = greenPixels.filter(g => g < 8 || g > 247).length;
-    const bimodalRatio = bimodalPixels / greenPixels.length;
+    const bimodalRatio = bimodalPx / totalPx;
     const pass2 = bimodalRatio >= 0.95;
     console.log(`${pass2 ? 'PASS' : 'FAIL'}  ${fileName}: green channel bimodal (${(bimodalRatio * 100).toFixed(1)}% ≥ 95%)`);
     if (!pass2) failures++;
 
     // Assertion 3: body coverage between 3% and 45%.
-    const coverage = (bodyPx / (width * height)) * 100;
+    const coverage = (bodyPx / totalPx) * 100;
     const pass3 = coverage >= 3 && coverage <= 45;
     console.log(`${pass3 ? 'PASS' : 'FAIL'}  ${fileName}: body coverage ${coverage.toFixed(1)}% (3–45% range)`);
     if (!pass3) failures++;

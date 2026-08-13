@@ -38,7 +38,7 @@ router.post('/', (req, res, next) => {
   try {
     const hideId = tx(() => {
       const info = stmt.hides.insert.run(
-        id, hiderName ? String(hiderName).slice(0, 120) : null, String(silhouetteId || 'human_a').slice(0, 80),
+        id, hiderName ? String(hiderName).slice(0, 120) : null, silhouetteId,
         t.x, t.y, t.rot, t.w, t.h, 'hides/pending.png', 512,
       );
       const newId = Number(info.lastInsertRowid);
