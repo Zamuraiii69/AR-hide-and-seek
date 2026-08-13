@@ -11,8 +11,8 @@
   <style>
     * { box-sizing: border-box; } html, body { margin:0; width:100%; height:100%; overflow:hidden; position:fixed; overscroll-behavior:none; background:#f5f5f3; color:#16181a; font:15px system-ui,sans-serif; }
     #ar { position:fixed; inset:0; } #hud { position:fixed; inset:0; pointer-events:none; display:flex; flex-direction:column; justify-content:space-between; padding:14px; }
-    .top, .panel { pointer-events:auto; background:rgba(255,255,255,.94); border:1px solid #e2e3df; border-radius:8px; box-shadow:0 5px 18px rgba(16,18,20,.18); }
-    .top { align-self:stretch; display:flex; gap:10px; align-items:center; padding:9px 12px; } #status { flex:1; color:#3a4146; } .panel { align-self:center; width:min(520px,100%); padding:12px; display:grid; gap:10px; }
+    .top, .panel { pointer-events:auto; border:1px solid #e2e3df; border-radius:8px; box-shadow:0 5px 18px rgba(16,18,20,.18); }
+    .top { align-self:stretch; display:flex; gap:10px; align-items:center; padding:9px 12px; background:rgba(255,255,255,.94); } #status { flex:1; color:#3a4146; } .panel { align-self:center; width:min(520px,100%); padding:12px; display:grid; gap:10px; background:rgba(243,243,241,.94); }
     button, a.button, input, select { pointer-events:auto; font:inherit; } button, a.button { border:1px solid transparent; border-radius:6px; min-height:40px; padding:0 13px; background:#e44a24; color:white; font-weight:700; display:inline-flex; align-items:center; justify-content:center; text-decoration:none; } button.secondary, a.secondary { background:#ffffff; border-color:#d2d4cf; color:#16181a; } button:disabled { opacity:.5; } .controls { display:flex; gap:8px; flex-wrap:wrap; align-items:center; } .controls button, .controls a.button { flex:1; }
     label { display:grid; grid-template-columns:72px 1fr; align-items:center; gap:9px; color:#3a4146; } input[type=range] { width:100%; accent-color:#e44a24; }
     select { min-height:34px; border:1px solid #d2d4cf; border-radius:4px; background:#ffffff; color:#16181a; padding:0 6px; }
@@ -24,9 +24,8 @@
     .swatch-grid { display:grid; grid-template-columns:repeat(5,1fr); gap:8px; } .swatch { padding:0; border:2px solid rgba(22,24,26,.28); border-radius:8px; aspect-ratio:1; min-height:0; width:auto; } .swatch[aria-pressed=true] { outline:2px solid #16181a; } #palette-note { color:#a35c00; font-size:13px; }
     .paint-col label.stacked, .paint-col .ctl-label { display:block; color:#3a4146; font:600 14px system-ui,sans-serif; }
     .eyedrop-row { display:flex; gap:20px; align-items:flex-start; } .eyedrop-pair { display:flex; gap:8px; align-items:center; }
-    #current-color, #tool { width:22px; height:22px; border-radius:50%; padding:0; min-height:0; } #current-color { border:2px solid rgba(22,24,26,.28); } #tool { background:#fff; border:1px solid #d2d4cf; } #tool[aria-pressed=true] { background:#e44a24; border-color:transparent; outline:2px solid #16181a; }
+    #current-color, #tool { width:22px; height:22px; border-radius:50%; padding:0; min-height:0; } #current-color { border:2px solid rgba(22,24,26,.28); } #tool { position:relative; background:#fff; border:1px solid #d2d4cf; } #tool[aria-pressed=true] { background:#e44a24; border-color:transparent; outline:2px solid #16181a; } #tool::before { content:''; position:absolute; inset:5px; border:2px solid #5f6870; border-radius:50%; box-sizing:border-box; } #tool[aria-pressed=true]::before { border-color:#fff; }
     #paint-preview { width:100%; aspect-ratio:1; background:#fff; border:1px solid #e2e3df; border-radius:6px; display:block; }
-    [data-mode=PLACE] .panel, [data-mode=PAINT] .panel { background:rgba(243,243,241,.94); }
     [data-mode=PLACE] .paint-only, [data-mode=PLACE] .review-only, [data-mode=PAINT] .place-only, [data-mode=PAINT] .review-only, [data-mode=REVIEW] .place-only, [data-mode=REVIEW] .paint-only { display:none; }
     #share { color:#16181a; display:grid; gap:8px; } #share p { margin:0; } #share input { width:100%; min-height:38px; border:1px solid #d2d4cf; border-radius:4px; background:#ffffff; color:#16181a; padding:7px 9px; } #share a { color:#b23718; } #share .share-status { color:#5f6870; font-size:13px; min-height:1.3em; } .spinner { width:16px; height:16px; border:2px solid rgba(22,24,26,.22); border-top-color:#16181a; border-radius:50%; animation:spin .75s linear infinite; } .hidden { display:none; } @keyframes spin { to { transform:rotate(360deg) } }
   </style>
@@ -41,7 +40,7 @@
         <div id="palette" class="swatch-grid"></div>
         <span id="palette-note"></span>
         <label class="stacked" for="brush-size">Brush</label><input id="brush-size" type="range" min="4" max="52" value="16">
-        <div class="eyedrop-row"><div><span class="ctl-label">Eyedropper</span><div class="eyedrop-pair"><button id="tool" type="button" aria-pressed="false" aria-label="Eyedropper"></button><span id="current-color" aria-hidden="true"></span></div></div><div><label class="stacked" for="brush-edge">Edge</label><select id="brush-edge"><option value="hard">Hard</option><option value="soft">Soft</option></select></div></div>
+        <div class="eyedrop-row"><div><span id="tool-label" class="ctl-label">Eyedropper</span><div class="eyedrop-pair"><button id="tool" type="button" aria-pressed="false" aria-label="Eyedropper"></button><span id="current-color" aria-hidden="true"></span></div></div><div><label class="stacked" for="brush-edge">Edge</label><select id="brush-edge"><option value="hard">Hard</option><option value="soft">Soft</option></select></div></div>
         <button id="review" type="button">Review</button>
       </div>
       <div class="paint-col">

@@ -105,7 +105,8 @@ export async function createSilhouette({ maskUrl, paintRes = PAINT_RES, baseColo
   }
 
   return {
-    mesh, material, paintCanvas, pctx, paintTexture, maskTexture, paintRes,
+    mesh, material, paintCanvas, pctx, paintTexture, paintRes,
+    get maskTexture() { return maskTexture; },
     setTransform, setMask, fillBase, loadPaint, getPaintDataUrl, dispose,
   };
 }

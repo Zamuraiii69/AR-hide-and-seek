@@ -208,7 +208,12 @@ async function boot() {
       button.dataset.poseId = id;
       button.setAttribute('aria-pressed', String(id === state.pose));
       button.setAttribute('aria-label', `Pose ${poseLetter(id)}`);
-      button.addEventListener('click', () => switchPose(id));
+      button.addEventListener('click', () => {
+        switchPose(id).catch((error) => {
+          console.error('pose switch failed:', error);
+          setStatus('Could not switch pose — try again.');
+        });
+      });
       buttons.push(button);
     }
     row.replaceChildren(...buttons);
@@ -259,6 +264,7 @@ async function boot() {
   $('palette').replaceChildren(...(canEyedrop ? dominant : FALLBACK_PALETTE).map(makeSwatch));
   if (!canEyedrop) {
     $('tool').classList.add('hidden');
+    $('tool-label').classList.add('hidden');
     setText($('palette-note'), marker.imageUrl
       ? "Couldn't read colours from the marker image — using the fallback palette."
       : 'This marker has no source image — using the fallback palette.');

@@ -51,8 +51,8 @@ each seek attempt; the view displays at most the latest 200 attempts.
 npm test
 ```
 
-This runs the mask, palette/marker sampler, seek/backdrop, and LINEARmap demo
-checks in sequence. The mask check validates every pose asset in
+This runs the mask, palette/marker sampler, seek/backdrop, LINEARmap demo,
+and preview coordinate-mapping checks in sequence. The mask check validates every pose asset in
 `public/assets/silhouettes/`. The physical-device checks still matter: camera
 permission, marker tracking, distance gating, share-sheet behavior, and
 camouflage under different lighting cannot be established by the Node suite.
