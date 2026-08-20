@@ -11,7 +11,7 @@ const fs = require('fs');
 const { stmt } = require('../db');
 const storage = require('../storage');
 const { validateMaskBuffer } = require('../maskContract');
-const { MAX_CUSTOM_POSES } = require('../markerPoses');
+const { MAX_CUSTOM_POSES, posesFor, resolveSilhouetteUrl } = require('../markerPoses');
 
 const router = express.Router();
 
@@ -70,6 +70,7 @@ function toSummary(row) {
     aspect: row.aspect,
     imageUrl: row.image_path ? storage.markerImageUrl(row.id) : null,
     hideCount: row.hide_count ?? 0,
+    customHider: row.custom_pose_count > 0,
   };
 }
 
@@ -90,6 +91,7 @@ function toDetail(row) {
     mindUrl: ready ? storage.markerMindUrl(row.id) : null,
     palette: safeParse(row.palette_json, []),
     grid: safeParse(row.grid_json, []),
+    poses: posesFor(row),
     createdAt: row.created_at,
   };
 }
@@ -213,7 +215,8 @@ router.put('/:id/pose/:slot', rawPose, (req, res) => {
 // GET /api/markers/:id/hides?pick=random&limit=1
 router.get('/:id/hides', (req, res) => {
   const id = Number(req.params.id);
-  if (!stmt.markers.byId.get(id)) return res.status(404).json({ error: 'marker not found' });
+  const marker = stmt.markers.byId.get(id);
+  if (!marker) return res.status(404).json({ error: 'marker not found' });
 
   let rows = stmt.hides.byMarker.all(id);
   if (req.query.pick === 'random') {
@@ -230,6 +233,7 @@ router.get('/:id/hides', (req, res) => {
     id: h.id,
     markerId: h.marker_id,
     silhouetteId: h.silhouette_id,
+    silhouetteUrl: resolveSilhouetteUrl(marker, h.silhouette_id),
     transform: { x: h.pos_x, y: h.pos_y, rot: h.rot_z, w: h.size_w, h: h.size_h },
     paintRes: h.paint_res,
     paintUrl: storage.hidePaintUrl(h.id),

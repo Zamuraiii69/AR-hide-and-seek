@@ -1,7 +1,8 @@
 const express = require('express');
 const { stmt, tx } = require('../db');
 const storage = require('../storage');
-const { MAX_TAPS, SILHOUETTE_IDS } = require('../gameRules');
+const { MAX_TAPS } = require('../gameRules');
+const { posesFor, resolveSilhouetteUrl } = require('../markerPoses');
 const { statsFor } = require('../seekStats');
 
 const router = express.Router();
@@ -18,12 +19,18 @@ function validTransform(value) {
 }
 
 router.post('/', (req, res, next) => {
-  const { markerId, hiderName, silhouetteId = 'human_a', transform, paintDataUrl } = req.body || {};
-  if (!SILHOUETTE_IDS.includes(silhouetteId)) return fail(res, 400, 'silhouetteId not recognised');
+  const { markerId, hiderName, silhouetteId, transform, paintDataUrl } = req.body || {};
   const id = Number(markerId);
   const marker = stmt.markers.byId.get(id);
   if (!marker) return fail(res, 404, 'marker not found');
   if (marker.status !== 'ready') return fail(res, 400, 'marker is not ready');
+
+  // A hider at this marker gets this marker's poses and nothing else — the
+  // custom-only rule is enforced here, not by hiding the picker client-side.
+  const poses = posesFor(marker);
+  const chosenSilhouetteId = silhouetteId ?? poses[0].id;
+  if (!poses.some((p) => p.id === chosenSilhouetteId)) return fail(res, 400, 'silhouetteId not recognised');
+
   const t = validTransform(transform);
   if (!t) return fail(res, 400, 'transform x, y, rot, w, h must be finite; w and h must be between 0 and 2');
 
@@ -38,7 +45,7 @@ router.post('/', (req, res, next) => {
   try {
     const hideId = tx(() => {
       const info = stmt.hides.insert.run(
-        id, hiderName ? String(hiderName).slice(0, 120) : null, silhouetteId,
+        id, hiderName ? String(hiderName).slice(0, 120) : null, chosenSilhouetteId,
         t.x, t.y, t.rot, t.w, t.h, 'hides/pending.png', 512,
       );
       const newId = Number(info.lastInsertRowid);
@@ -62,6 +69,7 @@ router.get('/:id', (req, res) => {
   if (!marker) return fail(res, 404, 'marker not found');
   res.json({
     id: row.id, markerId: row.marker_id, silhouetteId: row.silhouette_id,
+    silhouetteUrl: resolveSilhouetteUrl(marker, row.silhouette_id),
     transform: { x: row.pos_x, y: row.pos_y, rot: row.rot_z, w: row.size_w, h: row.size_h },
     paintUrl: storage.hidePaintUrl(row.id), paintRes: row.paint_res,
     marker: { aspect: marker.aspect, mindUrl: storage.markerMindUrl(marker.id), imageUrl: storage.markerImageUrl(marker.id) },
