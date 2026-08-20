@@ -37,6 +37,15 @@ function drawHeatmap(image, seeks) {
   canvas.hidden = false;
 }
 
+// 'custom_1' -> 'Custom 1'; built-in ids ('human_a', legacy 'human_default')
+// render as-is — this table is a global aggregate across every marker
+// (R1 in the design doc: custom_N merges across markers), so it has no
+// per-marker pose list to look a label up in.
+function poseLabel(poseId) {
+  const match = /^custom_(\d+)$/.exec(poseId);
+  return match ? `Custom ${match[1]}` : poseId;
+}
+
 function renderPoseStats(poses) {
   const table = $('pose-stats-table');
   const empty = $('pose-stats-empty');
@@ -50,7 +59,7 @@ function renderPoseStats(poses) {
   for (const pose of poses) {
     const row = document.createElement('tr');
     const cells = [
-      pose.poseId,
+      poseLabel(pose.poseId),
       pose.attempts,
       pose.hides,
       `${Math.round(pose.foundRate * 100)}%`,

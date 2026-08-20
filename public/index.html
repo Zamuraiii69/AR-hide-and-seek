@@ -138,6 +138,19 @@
     margin: 0;
     font-size: 1rem;
     line-height: 1.25;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .badge {
+    font-size: .68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .02em;
+    padding: 2px 7px;
+    border-radius: 999px;
+    background: var(--accent);
+    color: white;
   }
   .meta {
     display: flex;
@@ -234,7 +247,7 @@ function markerCard(marker) {
     <article class="card">
       ${img}
       <div class="body">
-        <h2 class="name">${escapeHtml(marker.name)}</h2>
+        <h2 class="name">${escapeHtml(marker.name)}${marker.customHider ? '<span class="badge">Custom</span>' : ''}</h2>
         <div class="meta">
           <span class="status ${ready ? '' : 'pending'}">${escapeHtml(marker.status)}</span>
           <span>${hideCount} hides</span>
