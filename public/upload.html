@@ -32,6 +32,9 @@
     button.secondary { background: #ffffff; border-color: #d2d4cf; color: #16181a; }
     button:disabled { cursor: not-allowed; opacity: .5; }
     .hint { margin: 0; color: #5f6870; font-size: .82rem; line-height: 1.45; }
+    .checkbox { display: flex; align-items: center; gap: 8px; font-weight: 650; color: #3a4146; font-size: .95rem; cursor: pointer; }
+    .checkbox input { width: auto; min-height: auto; }
+    #pose-status[data-kind="error"] { color: #b3261e; }
     .desktop-gate { border: 1px solid #e2e3df; padding: 18px; background: #ffffff; }
     .desktop-gate h2 { margin: 0 0 8px; font-size: 1.05rem; }
     .desktop-gate p { margin: 0 0 16px; color: #5f6870; line-height: 1.5; }
@@ -71,6 +74,29 @@
           <dt>Palette</dt><dd id="palette-size">-</dd>
           <dt>Target</dt><dd id="target-size">-</dd>
         </dl>
+      </section>
+      <div class="field">
+        <label class="checkbox" for="custom-hider-toggle">
+          <input id="custom-hider-toggle" type="checkbox">
+          Use a custom hider
+        </label>
+        <p class="hint">Anyone hiding at this marker will use this shape only — no other poses.</p>
+      </div>
+      <section id="pose-field" hidden>
+        <div class="field">
+          <label for="pose-file">Hider silhouette</label>
+          <input id="pose-file" name="pose-file" type="file" accept="image/png,image/jpeg,image/webp">
+          <p class="hint">Transparent PNG works best. The preview below is the shape the game will use.</p>
+        </div>
+        <section class="preview" id="pose-preview" aria-label="Normalized hider silhouette preview">
+          <img id="pose-preview-image" alt="Normalized hider silhouette preview">
+          <dl>
+            <dt>Coverage</dt><dd id="pose-coverage">-</dd>
+            <dt>Size</dt><dd id="pose-size">-</dd>
+            <dt>Source</dt><dd id="pose-source">-</dd>
+          </dl>
+        </section>
+        <p id="pose-status" role="status"></p>
       </section>
       <section class="progress" id="progress-area" aria-live="polite">
         <label class="label" id="phase" for="progress">Choose an image to begin.</label>

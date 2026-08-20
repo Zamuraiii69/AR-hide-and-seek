@@ -1,4 +1,6 @@
 import { extractPalette, gridPalette } from './core/palette.js';
+import { MASK_RES } from './core/maskNormalize.js';
+import { normalizeMaskFile } from './core/maskFile.js';
 
 const MAX_DIM = 1024;
 const MIN_DIM = 512;
@@ -17,15 +19,30 @@ const phase = $('phase');
 const status = $('status');
 const desktopGate = $('desktop-gate');
 const continueUpload = $('continue-upload');
+const customHiderToggle = $('custom-hider-toggle');
+const poseField = $('pose-field');
+const poseFileInput = $('pose-file');
+const posePreview = $('pose-preview');
+const posePreviewImage = $('pose-preview-image');
+const poseCoverage = $('pose-coverage');
+const poseSize = $('pose-size');
+const poseSource = $('pose-source');
+const poseStatus = $('pose-status');
 
 let prepared = null;
 let previewUrl = null;
 let uploading = false;
 let markerId = null;
+let poseMask = null; // { blob, coverage, bbox, source, ok } once normalizeMaskFile() passes
 
 function setStatus(message = '', kind = '') {
   status.textContent = message;
   status.dataset.kind = kind;
+}
+
+function setPoseStatus(message = '', kind = '') {
+  poseStatus.textContent = message;
+  poseStatus.dataset.kind = kind;
 }
 
 function setPhase(message, value = null) {
@@ -38,8 +55,12 @@ function setBusy(busy) {
   uploading = busy;
   fileInput.disabled = busy;
   nameInput.disabled = busy;
+  customHiderToggle.disabled = busy;
+  poseFileInput.disabled = busy;
   reset.disabled = busy || !prepared;
-  submit.disabled = busy || !prepared || !nameInput.value.trim();
+  const customOn = customHiderToggle.checked;
+  const validMask = Boolean(poseMask?.ok);
+  submit.disabled = busy || !prepared || !nameInput.value.trim() || (customOn && !validMask);
 }
 
 function fileStem(file) {
@@ -155,6 +176,36 @@ async function onFileChange() {
   }
 }
 
+async function onPoseFileChange() {
+  const file = poseFileInput.files?.[0];
+  poseMask = null;
+  posePreview.style.display = 'none';
+  setPoseStatus();
+  if (!file) {
+    setBusy(false);
+    return;
+  }
+  setBusy(true);
+  try {
+    const result = await normalizeMaskFile(file);
+    poseCoverage.textContent = `${result.coverage.toFixed(1)}%`;
+    poseSize.textContent = `${MASK_RES} x ${MASK_RES}`;
+    poseSource.textContent = result.source === 'alpha' ? 'alpha channel' : 'luminance (auto)';
+    posePreviewImage.src = result.previewDataUrl;
+    posePreview.style.display = 'grid';
+    if (result.ok) {
+      poseMask = result;
+      setPoseStatus();
+    } else {
+      setPoseStatus(result.error, 'error');
+    }
+  } catch (error) {
+    setPoseStatus(error.message || 'Could not read this image.', 'error');
+  } finally {
+    setBusy(false);
+  }
+}
+
 async function uploadMarker(targetBlob) {
   if (!markerId) {
     const marker = await request('/api/markers', {
@@ -169,6 +220,18 @@ async function uploadMarker(targetBlob) {
       }),
     });
     markerId = marker.id;
+  }
+
+  // Pose upload goes first — a failed pose PUT aborts the flow before the
+  // marker can ever become 'ready', so a marker can never be playable with a
+  // half-configured custom hider.
+  if (poseMask) {
+    setPhase('Uploading hider silhouette...', 100);
+    await request(`/api/markers/${markerId}/pose/1`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'image/png' },
+      body: poseMask.blob,
+    });
   }
 
   setPhase('Uploading marker image...', 100);
@@ -193,6 +256,20 @@ reset.addEventListener('click', () => {
   resetPrepared();
 });
 
+customHiderToggle.addEventListener('change', () => {
+  poseField.hidden = !customHiderToggle.checked;
+  if (!customHiderToggle.checked) {
+    // Unticking clears the stored blob and metrics, so an abandoned attempt
+    // can never be uploaded.
+    poseFileInput.value = '';
+    poseMask = null;
+    posePreview.style.display = 'none';
+    setPoseStatus();
+  }
+  setBusy(uploading);
+});
+poseFileInput.addEventListener('change', onPoseFileChange);
+
 if (matchMedia('(pointer: coarse)').matches || matchMedia('(max-width: 700px)').matches) {
   desktopGate.hidden = false;
   form.hidden = true;
@@ -205,6 +282,7 @@ if (matchMedia('(pointer: coarse)').matches || matchMedia('(max-width: 700px)').
 form.addEventListener('submit', async (event) => {
   event.preventDefault();
   if (!prepared || uploading || !nameInput.value.trim()) return;
+  if (customHiderToggle.checked && !poseMask?.ok) return;
   setBusy(true);
   setStatus();
   try {
