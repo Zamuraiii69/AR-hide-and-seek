@@ -1,140 +1,44 @@
-// tools/check-mask.js — decode silhouette PNGs independently and validate the
-// mask contract mask.js relies on: green channel bimodal, coverage in range, bbox
-// inside [0,1].
+// tools/check-mask.js — drives server/maskContract.js against the shipped
+// silhouette assets in public/assets/silhouettes/*.png, plus the POSE_IDS /
+// SILHOUETTE_IDS parity check between the browser and server declarations.
 const fs = require('fs');
 const path = require('path');
-const zlib = require('zlib');
+const { validateMaskBuffer, BIMODAL_MIN, COVERAGE_MIN, COVERAGE_MAX } = require('../server/maskContract');
 
-// PNG decoder — handles filters 0-4 and colour types 0/2/4/6, non-interlaced, 8-bit.
-function decode(file) {
-  const buf = fs.readFileSync(file);
-  let p = 8, width, height, color, idat = [];
-  while (p < buf.length) {
-    const len = buf.readUInt32BE(p);
-    const type = buf.toString('ascii', p + 4, p + 8);
-    const data = buf.subarray(p + 8, p + 8 + len);
-    if (type === 'IHDR') {
-      width = data.readUInt32BE(0); height = data.readUInt32BE(4);
-      if (data[8] !== 8) throw new Error(`${file}: bit depth ${data[8]} unsupported`);
-      if (data[12] !== 0) throw new Error(`${file}: interlaced`);
-      color = data[9];
-    }
-    if (type === 'IDAT') idat.push(data);
-    if (type === 'IEND') break;
-    p += 12 + len;
-  }
-  const channels = { 0: 1, 2: 3, 4: 2, 6: 4 }[color];
-  if (!channels) throw new Error(`${file}: colour type ${color} unsupported`);
-  const raw = zlib.inflateSync(Buffer.concat(idat));
-  const stride = width * channels;
-  const out = Buffer.alloc(stride * height);
-  for (let y = 0; y < height; y++) {
-    const f = raw[y * (stride + 1)];
-    const src = raw.subarray(y * (stride + 1) + 1, (y + 1) * (stride + 1));
-    const cur = out.subarray(y * stride, (y + 1) * stride);
-    const prev = y > 0 ? out.subarray((y - 1) * stride, y * stride) : null;
-    for (let i = 0; i < stride; i++) {
-      const a = i >= channels ? cur[i - channels] : 0;
-      const b = prev ? prev[i] : 0;
-      const c = prev && i >= channels ? prev[i - channels] : 0;
-      let v = src[i];
-      if (f === 1) v += a;
-      else if (f === 2) v += b;
-      else if (f === 3) v += (a + b) >> 1;
-      else if (f === 4) {
-        const pp = a + b - c;
-        const pa = Math.abs(pp - a), pb = Math.abs(pp - b), pc = Math.abs(pp - c);
-        v += (pa <= pb && pa <= pc) ? a : (pb <= pc ? b : c);
-      }
-      cur[i] = v & 0xff;
-    }
-  }
-  return { width, height, channels, color, data: out };
-}
-
-// Helper to extract green channel value at pixel (x, y).
-function getGreenChannel(decoded, x, y) {
-  const { width, channels, color, data } = decoded;
-  const pixelOffset = y * width * channels + x * channels;
-
-  // For color type 0 (grayscale, 1 channel) and 4 (grayscale+alpha, 2 channels),
-  // use channel 0. For color type 2 (RGB, 3 channels) and 6 (RGBA, 4 channels),
-  // use channel 1 (green).
-  const greenIndex = (color === 0 || color === 4) ? 0 : 1;
-  return data[pixelOffset + greenIndex];
-}
-
-// Check a single PNG file against the assertions.
+// Check a single PNG file against the mask contract, printing one line per
+// assertion (kept granular for readability, even though validateMaskBuffer
+// only needs to return ok/error for callers like the upload route).
 function checkFile(filePath, fileName) {
-  let failures = 0;
+  const buffer = fs.readFileSync(filePath);
+  const result = validateMaskBuffer(buffer);
 
-  try {
-    const decoded = decode(filePath);
-    const { width, height, color } = decoded;
-
-    // Assertion 1: 8-bit, non-interlaced, colour type ∈ {0,2,4,6}
-    const colorTypeValid = [0, 2, 4, 6].includes(color);
-    const pass1 = colorTypeValid;
-    console.log(`${pass1 ? 'PASS' : 'FAIL'}  ${fileName}: 8-bit, non-interlaced, colour type ${color}`);
-    if (!pass1) failures++;
-
-    // Extract green channel and compute statistics. Counted in one pass rather
-    // than collected into an array — a 1024² asset is a million samples per file,
-    // and the assertions below only ever need the tallies.
-    const totalPx = width * height;
-    let bimodalPx = 0;
-    let bodyPx = 0;
-    let x0 = width, y0 = height, x1 = -1, y1 = -1;
-
-    for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
-        const g = getGreenChannel(decoded, x, y);
-        if (g < 8 || g > 247) bimodalPx++;
-
-        if (g > 127) {
-          bodyPx++;
-          if (x < x0) x0 = x;
-          if (x > x1) x1 = x;
-          if (y < y0) y0 = y;
-          if (y > y1) y1 = y;
-        }
-      }
-    }
-
-    // Assertion 2: green channel is bimodal (≥95% < 8 or > 247).
-    const bimodalRatio = bimodalPx / totalPx;
-    const pass2 = bimodalRatio >= 0.95;
-    console.log(`${pass2 ? 'PASS' : 'FAIL'}  ${fileName}: green channel bimodal (${(bimodalRatio * 100).toFixed(1)}% ≥ 95%)`);
-    if (!pass2) failures++;
-
-    // Assertion 3: body coverage between 3% and 45%.
-    const coverage = (bodyPx / totalPx) * 100;
-    const pass3 = coverage >= 3 && coverage <= 45;
-    console.log(`${pass3 ? 'PASS' : 'FAIL'}  ${fileName}: body coverage ${coverage.toFixed(1)}% (3–45% range)`);
-    if (!pass3) failures++;
-
-    // Assertion 4: bbox non-empty and fully inside [0,1].
-    let pass4 = false;
-    let bboxDetail = '';
-    if (bodyPx > 0) {
-      const u0 = x0 / width;
-      const u1 = (x1 + 1) / width;
-      const v0 = 1 - (y1 + 1) / height;
-      const v1 = 1 - y0 / height;
-
-      pass4 = u0 >= 0 && u1 <= 1 && v0 >= 0 && v1 <= 1;
-      bboxDetail = `bbox (${u0.toFixed(3)}, ${u1.toFixed(3)}, ${v0.toFixed(3)}, ${v1.toFixed(3)})`;
-    } else {
-      bboxDetail = 'empty (no body pixels)';
-    }
-    console.log(`${pass4 ? 'PASS' : 'FAIL'}  ${fileName}: bbox inside [0,1]  — ${bboxDetail}`);
-    if (!pass4) failures++;
-
-    return failures;
-  } catch (err) {
-    console.log(`FAIL  ${fileName}: decode error  — ${err.message}`);
+  if (result.decodeError) {
+    console.log(`FAIL  ${fileName}: decode error  — ${result.decodeError}`);
     return 4; // All assertions failed due to decode error.
   }
+
+  let failures = 0;
+
+  const pass1 = result.colorTypeValid;
+  console.log(`${pass1 ? 'PASS' : 'FAIL'}  ${fileName}: 8-bit, non-interlaced, colour type ${result.colorType}`);
+  if (!pass1) failures++;
+
+  const pass2 = result.bimodalRatio >= BIMODAL_MIN;
+  console.log(`${pass2 ? 'PASS' : 'FAIL'}  ${fileName}: green channel bimodal (${(result.bimodalRatio * 100).toFixed(1)}% ≥ ${BIMODAL_MIN * 100}%)`);
+  if (!pass2) failures++;
+
+  const pass3 = result.coverage >= COVERAGE_MIN && result.coverage <= COVERAGE_MAX;
+  console.log(`${pass3 ? 'PASS' : 'FAIL'}  ${fileName}: body coverage ${result.coverage.toFixed(1)}% (${COVERAGE_MIN}–${COVERAGE_MAX}% range)`);
+  if (!pass3) failures++;
+
+  const pass4 = !!result.bbox;
+  const bboxDetail = result.bbox
+    ? `bbox (${result.bbox.u0.toFixed(3)}, ${result.bbox.u1.toFixed(3)}, ${result.bbox.v0.toFixed(3)}, ${result.bbox.v1.toFixed(3)})`
+    : 'empty (no body pixels)';
+  console.log(`${pass4 ? 'PASS' : 'FAIL'}  ${fileName}: bbox inside [0,1]  — ${bboxDetail}`);
+  if (!pass4) failures++;
+
+  return failures;
 }
 
 // Main: glob public/assets/silhouettes/*.png and check each.
