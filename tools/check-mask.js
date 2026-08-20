@@ -73,6 +73,17 @@ for (const fileName of files) {
   console.log(`${filesOk ? 'PASS' : 'FAIL'}  every POSE_IDS entry resolves to a file  — ${filesOk ? 'ok' : 'missing: ' + missingFile.join(',')}`);
   if (!filesOk) totalFailures++;
 
+  // maskNormalize.js (browser ESM) vs maskContract.js (CommonJS) can't share
+  // an import either — same remedy as POSE_IDS/SILHOUETTE_IDS above: two
+  // declarations, checked for parity here.
+  const { MASK_LIMITS } = await import('../public/js/core/maskNormalize.js');
+  const { BIMODAL_MIN, COVERAGE_MIN, COVERAGE_MAX } = require('../server/maskContract.js');
+  const limitsMatch = MASK_LIMITS.minBimodal === BIMODAL_MIN
+    && MASK_LIMITS.minCoverage === COVERAGE_MIN
+    && MASK_LIMITS.maxCoverage === COVERAGE_MAX;
+  console.log(`${limitsMatch ? 'PASS' : 'FAIL'}  maskNormalize.js/maskContract.js parity  — MASK_LIMITS: ${JSON.stringify(MASK_LIMITS)}  server: {bimodal:${BIMODAL_MIN},coverage:${COVERAGE_MIN}-${COVERAGE_MAX}}`);
+  if (!limitsMatch) totalFailures++;
+
   console.log(totalFailures === 0 ? '\nALL PASS' : `\n${totalFailures} FAILED`);
   process.exit(totalFailures === 0 ? 0 : 1);
 })();
