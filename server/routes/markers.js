@@ -10,13 +10,19 @@ const express = require('express');
 const fs = require('fs');
 const { stmt } = require('../db');
 const storage = require('../storage');
+const { validateMaskBuffer } = require('../maskContract');
+const { MAX_CUSTOM_POSES } = require('../markerPoses');
 
 const router = express.Router();
 
 // Accept raw bodies up to 8 MB for the binary PUTs.
 const rawImage = express.raw({ type: 'image/png', limit: '8mb' });
 const rawBinary = express.raw({ type: 'application/octet-stream', limit: '8mb' });
+const rawPose = express.raw({ type: 'image/png', limit: '1mb' });
 const MIN_MIND_BYTES = 10 * 1024;
+const POSE_MIN_EDGE = 256;
+const POSE_MAX_EDGE = 1024;
+const MAX_POSE_BYTES = 1024 * 1024;
 
 // --- helpers ---------------------------------------------------------------
 
@@ -151,6 +157,56 @@ router.put('/:id/target', rawBinary, (req, res) => {
   }
   storage.writeAtomic(storage.markerMindPath(id), req.body);
   stmt.markers.setTarget.run(storage.markerMindRelPath(id), id);
+  res.sendStatus(204);
+});
+
+// PUT /api/markers/:id/pose/:slot → raw image/png, sets the marker's custom
+// hider silhouette. Slot is validated as an integer in 1..MAX_CUSTOM_POSES
+// before it ever reaches a filesystem path — the one path-traversal surface
+// this feature adds. "Set once": a slot that already has a pose 409s instead
+// of overwriting.
+router.put('/:id/pose/:slot', rawPose, (req, res) => {
+  const id = Number(req.params.id);
+  const slot = Number(req.params.slot);
+  if (!Number.isInteger(slot) || slot < 1 || slot > MAX_CUSTOM_POSES) {
+    return res.status(400).json({ error: `slot must be an integer between 1 and ${MAX_CUSTOM_POSES}` });
+  }
+  const row = stmt.markers.byId.get(id);
+  if (!row) return res.status(404).json({ error: 'marker not found' });
+  if (row.custom_pose_count >= slot) {
+    return res.status(409).json({ error: 'custom hider for this slot is already set' });
+  }
+  if (stmt.markers.hideCount.get(id).n > 0) {
+    return res.status(409).json({ error: 'marker already has hides' });
+  }
+  if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+    return res.status(400).json({ error: 'raw image/png body required' });
+  }
+
+  let width, height;
+  try {
+    storage.assertPngBuffer(req.body, { maxBytes: MAX_POSE_BYTES });
+    ({ width, height } = storage.pngDimensions(req.body));
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
+  if (width !== height) {
+    return res.status(400).json({ error: `pose image must be square — got ${width}x${height}` });
+  }
+  if (width < POSE_MIN_EDGE || width > POSE_MAX_EDGE) {
+    return res.status(400).json({ error: `pose image edge must be between ${POSE_MIN_EDGE} and ${POSE_MAX_EDGE} — got ${width}` });
+  }
+
+  const mask = validateMaskBuffer(req.body);
+  if (!mask.ok) {
+    return res.status(400).json({ error: mask.error });
+  }
+
+  // File written, then custom_pose_count set — in that order. posesFor()
+  // trusts the count without statting, so a non-zero count must never be
+  // visible before the file behind it exists.
+  storage.writeAtomic(storage.markerPosePath(id, slot), req.body);
+  stmt.markers.setPoseCount.run(slot, id);
   res.sendStatus(204);
 });
 
