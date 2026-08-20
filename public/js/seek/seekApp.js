@@ -68,12 +68,6 @@ function setState(mode) {
   if (STATUS[mode]) setStatus(STATUS[mode]);
 }
 
-/** Only ids we ship exist as assets; anything else is a corrupt row, not input. */
-function silhouetteUrl(id) {
-  const safe = /^[a-z0-9_]+$/.test(String(id || '')) ? id : 'human_a';
-  return `/assets/silhouettes/${safe}.png`;
-}
-
 function startWithTimeout(session) {
   return Promise.race([
     session.start(),
@@ -100,7 +94,8 @@ async function boot() {
   const hide = await getJSON(`/api/hides/${hideId}`);
   const maxTaps = Number(hide.maxTaps);
   if (!Number.isInteger(maxTaps) || maxTaps < 1) throw new Error('กติกาจำนวนครั้งที่ทายไม่ถูกต้อง');
-  const maskUrl = silhouetteUrl(hide.silhouetteId);
+  if (!hide.silhouetteUrl) throw new Error('ไม่พบรูปทรงของที่ซ่อนนี้ — ข้อมูลอาจเสียหาย');
+  const maskUrl = hide.silhouetteUrl;
   $('stats-link').href = `/stats.html?hide=${hideId}`;
 
   // The marker image is optional the same way it is in hide mode: without it

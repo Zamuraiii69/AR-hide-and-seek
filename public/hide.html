@@ -33,7 +33,7 @@
 <body><div id="ar"></div><div id="hud" data-mode="PLACE">
   <div class="top"><span id="spinner" class="spinner hidden"></span><span id="status">Preparing marker…</span><button id="start" type="button" disabled>Start camera</button></div>
   <section class="panel">
-    <div class="place-only place-grid"><span class="row-label">Pose</span><div id="pose-row" class="pose-row"><!-- 4 buttons, built in JS --></div><label class="stacked" for="scale">Scale</label><input id="scale" type="range" min="0.08" max="1.2" step="0.01" value="0.30"><label class="stacked" for="rotate">Rotate</label><input id="rotate" type="range" min="-180" max="180" step="1" value="0"><button id="lock" type="button">Lock Position</button><span id="fit"></span></div>
+    <div class="place-only place-grid"><span id="pose-row-label" class="row-label">Pose</span><div id="pose-row" class="pose-row"><!-- built in JS, one button per marker.poses entry --></div><label class="stacked" for="scale">Scale</label><input id="scale" type="range" min="0.08" max="1.2" step="0.01" value="0.30"><label class="stacked" for="rotate">Rotate</label><input id="rotate" type="range" min="-180" max="180" step="1" value="0"><button id="lock" type="button">Lock Position</button><span id="fit"></span></div>
     <div class="paint-only">
       <div class="paint-col">
         <h3 class="panel-h">Color</h3>

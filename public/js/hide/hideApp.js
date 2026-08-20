@@ -25,7 +25,6 @@ import { bindPointer } from '../core/pointer.js';
 import { createPlacement } from '../core/placement.js';
 import { createBrush } from '../core/brush.js';
 import { loadMarkerSampler } from '../core/markerSampler.js';
-import { POSE_IDS, silhouetteUrl } from '../core/poses.js';
 import { poseThumbnail } from '../core/poseThumb.js';
 import { extractPalette, FALLBACK_PALETTE } from '../core/palette.js';
 import { setBusy, setMode, setText } from '../core/hud.js';
@@ -34,7 +33,6 @@ import { shareAndHandleResult } from './shareResult.js';
 
 const $ = (id) => document.getElementById(id);
 
-const DEFAULT_POSE = POSE_IDS[0];            // 'human_a'
 const ASPECT_TOLERANCE = 0.01;    // db vs image aspect: wider than this is a bug
 const START_TIMEOUT_MS = 15000;
 
@@ -48,7 +46,7 @@ const state = {
   dirty: false,
   fits: true,
   hidden: false,
-  pose: DEFAULT_POSE,
+  pose: null,   // set from marker.poses[0].id once the marker is fetched, in boot()
 };
 
 const ndc = new THREE.Vector2();
@@ -93,13 +91,17 @@ async function boot() {
   if (marker.status !== 'ready' || !marker.mindUrl) {
     throw new Error(marker.targetError || 'This marker is not ready.');
   }
+  if (!marker.poses?.length) throw new Error('This marker has no selectable pose.');
+  state.pose = marker.poses[0].id;
+
+  const poseUrlFor = (id) => marker.poses.find((p) => p.id === id)?.url;
 
   // The sampler is optional by design (§4.5): a marker with no image, or a decode
   // failure, degrades to the fallback palette — it must never break the page.
   let mask;
   const [maskResult, silhouette, sampler] = await Promise.all([
-    loadMask(silhouetteUrl(state.pose)),
-    createSilhouette({ maskUrl: silhouetteUrl(state.pose) }),
+    loadMask(poseUrlFor(state.pose)),
+    createSilhouette({ maskUrl: poseUrlFor(state.pose) }),
     marker.imageUrl
       ? loadMarkerSampler(marker.imageUrl).catch((error) => {
         console.warn('marker sampler unavailable:', error.message);
@@ -177,7 +179,7 @@ async function boot() {
     switching = true;
     $('pose-row').querySelectorAll('.pose').forEach((b) => { b.disabled = true; });
     try {
-      const url = silhouetteUrl(id);
+      const url = poseUrlFor(id);
       // Decode the hit-test mask FIRST, swap the visible texture second: if the
       // decode fails we have changed nothing, instead of leaving the mesh
       // showing a pose that `mask`, `placement` and `state.pose` know nothing about.
@@ -198,22 +200,26 @@ async function boot() {
     }
   }
 
-  function poseLetter(id) {
-    return id.split('_').pop().toUpperCase();   // 'human_a' -> 'A'
-  }
-
   async function buildPoseRow() {
     const row = $('pose-row');
+    // A single pose is dead UI — nothing to switch to — so the whole row
+    // (button strip + its label) is hidden rather than shown with one button
+    // that does nothing when pressed.
+    const single = marker.poses.length <= 1;
+    row.classList.toggle('hidden', single);
+    $('pose-row-label').classList.toggle('hidden', single);
+    if (single) return;
+
     const buttons = [];
-    for (const id of POSE_IDS) {
+    for (const pose of marker.poses) {
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'pose';
-      button.dataset.poseId = id;
-      button.setAttribute('aria-pressed', String(id === state.pose));
-      button.setAttribute('aria-label', `Pose ${poseLetter(id)}`);
+      button.dataset.poseId = pose.id;
+      button.setAttribute('aria-pressed', String(pose.id === state.pose));
+      button.setAttribute('aria-label', `Pose ${pose.label}`);
       button.addEventListener('click', () => {
-        switchPose(id).catch((error) => {
+        switchPose(pose.id).catch((error) => {
           console.error('pose switch failed:', error);
           setStatus('Could not switch pose — try again.');
         });
@@ -223,19 +229,19 @@ async function boot() {
     row.replaceChildren(...buttons);
 
     // Decode thumbnails SEQUENTIALLY (not Promise.all) to keep peak memory flat
-    // on a low-end phone; fall back to the pose letter if a thumbnail fails to
+    // on a low-end phone; fall back to the pose's label if a thumbnail fails to
     // decode — a pose the hider cannot preview is still better than one they
     // cannot select.
     for (const button of buttons) {
       try {
-        const dataUrl = await poseThumbnail(silhouetteUrl(button.dataset.poseId), 64);
+        const dataUrl = await poseThumbnail(poseUrlFor(button.dataset.poseId), 64);
         const glyph = document.createElement('span');
         glyph.className = 'pose-glyph';
         glyph.style.setProperty('--thumb', `url(${dataUrl})`);
         button.replaceChildren(glyph);
       } catch (error) {
         console.warn(`pose thumbnail failed for ${button.dataset.poseId}:`, error.message);
-        button.textContent = poseLetter(button.dataset.poseId);
+        button.textContent = marker.poses.find((p) => p.id === button.dataset.poseId)?.label ?? '?';
       }
     }
   }
@@ -322,7 +328,7 @@ async function boot() {
   let redrawScheduled = false;
 
   function decodeMaskAlpha(pose) {
-    return poseThumbnail(silhouetteUrl(pose), silhouette.paintRes).then((dataUrl) => {
+    return poseThumbnail(poseUrlFor(pose), silhouette.paintRes).then((dataUrl) => {
       const img = new Image();
       return new Promise((resolve, reject) => {
         img.onload = () => resolve(img);
