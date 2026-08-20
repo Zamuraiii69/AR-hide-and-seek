@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS markers (
   aspect REAL NOT NULL,                        -- h/w — client needs before first frame
   palette_json TEXT NOT NULL DEFAULT '[]',     -- dominant colours (whole image)
   grid_json TEXT NOT NULL DEFAULT '[]',        -- per-cell average colour 4x4
+  custom_pose_count INTEGER NOT NULL DEFAULT 0, -- 0 = built-in poses; N = custom_1..custom_N
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -71,6 +72,18 @@ if (db.prepare('PRAGMA user_version').get().user_version < 1) {
   db.exec('PRAGMA user_version = 1');
 }
 
+// Custom hider: one marker-level slot for a player-uploaded silhouette.
+// The table_info guard is required, not defensive noise: a fresh database
+// gets the column from CREATE TABLE above, so an unguarded ALTER would throw
+// "duplicate column name" on first boot.
+if (db.prepare('PRAGMA user_version').get().user_version < 2) {
+  const cols = db.prepare('PRAGMA table_info(markers)').all().map((c) => c.name);
+  if (!cols.includes('custom_pose_count')) {
+    db.exec('ALTER TABLE markers ADD COLUMN custom_pose_count INTEGER NOT NULL DEFAULT 0');
+  }
+  db.exec('PRAGMA user_version = 2');
+}
+
 // --- Prepared statements ---------------------------------------------------
 // Grouped by table; reused across requests. node:sqlite .run() returns
 // { changes, lastInsertRowid }; .get()/.all() return plain objects.
@@ -94,6 +107,7 @@ const stmt = {
         status = CASE WHEN image_path IS NOT NULL THEN 'ready' ELSE 'pending' END
       WHERE id = ?`),
     hideCount: db.prepare('SELECT COUNT(*) AS n FROM hides WHERE marker_id = ? AND is_active = 1'),
+    setPoseCount: db.prepare('UPDATE markers SET custom_pose_count = ? WHERE id = ?'),
   },
   hides: {
     insert: db.prepare(`

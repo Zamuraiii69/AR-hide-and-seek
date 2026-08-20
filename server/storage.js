@@ -1,9 +1,10 @@
 // server/storage.js — media paths + atomic file writes
 //
 // Layout under DATA_DIR:
-//   media/markers/:id.png     source marker image
-//   media/markers/:id.mind    compiled MindAR target
-//   media/hides/:id.png       painted silhouette texture
+//   media/markers/:id.png            source marker image
+//   media/markers/:id.mind           compiled MindAR target
+//   media/markers/:id-pose-N.png     custom hider silhouette, slot N
+//   media/hides/:id.png              painted silhouette texture
 //
 // Every write is atomic: writeFileSync(tmp) -> renameSync(tmp, final)
 // so a client can never fetch a half-written .mind / .png.
@@ -24,11 +25,13 @@ const MAX_PNG_BYTES = 4 * 1024 * 1024;
 // Absolute paths on disk.
 const markerImagePath = (id) => path.join(MARKERS_DIR, `${id}.png`);
 const markerMindPath = (id) => path.join(MARKERS_DIR, `${id}.mind`);
+const markerPosePath = (id, slot) => path.join(MARKERS_DIR, `${id}-pose-${slot}.png`);
 const hidePaintPath = (id) => path.join(HIDES_DIR, `${id}.png`);
 
 // Relative paths stored in the DB. Public URLs are still derived from ids.
 const markerImageRelPath = (id) => `markers/${id}.png`;
 const markerMindRelPath = (id) => `markers/${id}.mind`;
+const markerPoseRelPath = (id, slot) => `markers/${id}-pose-${slot}.png`;
 const hidePaintRelPath = (id) => `hides/${id}.png`;
 
 // Public URLs (served static + immutable — see server.js).
@@ -43,6 +46,7 @@ function versionedUrl(url, finalPath) {
 
 const markerImageUrl = (id) => versionedUrl(`/media/markers/${id}.png`, markerImagePath(id));
 const markerMindUrl = (id) => versionedUrl(`/media/markers/${id}.mind`, markerMindPath(id));
+const markerPoseUrl = (id, slot) => versionedUrl(`/media/markers/${id}-pose-${slot}.png`, markerPosePath(id, slot));
 const hidePaintUrl = (id) => versionedUrl(`/media/hides/${id}.png`, hidePaintPath(id));
 
 // Atomic write. tmp lives in the same dir so rename stays on one filesystem.
@@ -104,8 +108,8 @@ function removeQuiet(p) {
 
 module.exports = {
   MEDIA_DIR, MARKERS_DIR, HIDES_DIR,
-  markerImagePath, markerMindPath, hidePaintPath,
-  markerImageRelPath, markerMindRelPath, hidePaintRelPath,
-  markerImageUrl, markerMindUrl, hidePaintUrl,
+  markerImagePath, markerMindPath, markerPosePath, hidePaintPath,
+  markerImageRelPath, markerMindRelPath, markerPoseRelPath, hidePaintRelPath,
+  markerImageUrl, markerMindUrl, markerPoseUrl, hidePaintUrl,
   writeAtomic, assertPngBuffer, pngDimensions, pngBufferFromDataUrl, savePngDataUrl, removeQuiet,
 };
