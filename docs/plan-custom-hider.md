@@ -4,7 +4,7 @@ Written in English to match `plan-phase5.md` / `plan-phase7.md` / `plan-phase9.m
 
 | | |
 |---|---|
-| **Author** | tech lead (spec + execution plan — no implementation in this document) |
+| **Author** | tech lead (spec + execution plan)
 | **Date** | 2026-08-21 |
 | **Branch** | `feat/custom-hider`, off `main` @ `cccda2f` |
 | **Depends on** | Phase 9 merged (pose row, `human_default` migration at `server/db.js:69`) |

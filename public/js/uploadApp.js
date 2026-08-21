@@ -122,18 +122,49 @@ async function compilerConstructor() {
   return Compiler;
 }
 
+function assertWebglSupport() {
+  const probe = document.createElement('canvas');
+  const gl = probe.getContext('webgl2') || probe.getContext('webgl');
+  if (!gl) {
+    throw new Error(
+      'This browser cannot compile AR targets — WebGL is unavailable. Enable hardware '
+      + 'acceleration in your browser settings and reload, or use a different device.',
+    );
+  }
+}
+
 async function compileTarget(sourceDataUrl) {
+  assertWebglSupport();
   const source = new Image();
   source.src = sourceDataUrl;
   await source.decode();
   const Compiler = await compilerConstructor();
   const compiler = new Compiler();
   await new Promise((resolve) => requestAnimationFrame(resolve));
-  await compiler.compileImageTargets([source], (percent) => {
-    const value = Math.round(Number(percent));
-    setPhase(`Compiling AR target... ${value}%`, value);
+
+  // mind-ar's tfjs backend can throw from a detached async task (e.g. a missing
+  // CPU-backend kernel after WebGL init silently fails) that never reaches
+  // compileImageTargets' own promise chain — without this listener that leaves
+  // the page hung on "Compiling..." forever instead of surfacing an error.
+  let onLeak;
+  const leaked = new Promise((_, reject) => {
+    onLeak = (event) => reject(event.reason instanceof Error ? event.reason : new Error(String(event.reason)));
+    window.addEventListener('unhandledrejection', onLeak);
   });
-  const bytes = await compiler.exportData();
+
+  let bytes;
+  try {
+    await Promise.race([
+      compiler.compileImageTargets([source], (percent) => {
+        const value = Math.round(Number(percent));
+        setPhase(`Compiling AR target... ${value}%`, value);
+      }),
+      leaked,
+    ]);
+    bytes = await compiler.exportData();
+  } finally {
+    window.removeEventListener('unhandledrejection', onLeak);
+  }
   if (!bytes?.byteLength) throw new Error('MindAR compiler produced an empty target.');
   return new Blob([bytes], { type: 'application/octet-stream' });
 }

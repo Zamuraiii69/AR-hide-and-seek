@@ -202,13 +202,11 @@ async function boot() {
 
   async function buildPoseRow() {
     const row = $('pose-row');
-    // A single pose is dead UI — nothing to switch to — so the whole row
-    // (button strip + its label) is hidden rather than shown with one button
-    // that does nothing when pressed.
-    const single = marker.poses.length <= 1;
-    row.classList.toggle('hidden', single);
-    $('pose-row-label').classList.toggle('hidden', single);
-    if (single) return;
+    // Always render the row, even for a single pose (custom hider markers):
+    // it keeps the placement UI identical to the multi-pose layout instead of
+    // reshuffling the panel when there's nothing to switch to.
+    row.classList.remove('hidden');
+    $('pose-row-label').classList.remove('hidden');
 
     const buttons = [];
     for (const pose of marker.poses) {
