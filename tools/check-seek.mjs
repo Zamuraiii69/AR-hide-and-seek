@@ -13,7 +13,7 @@
 // Run: node tools/check-seek.mjs
 
 import * as THREE from 'three';
-import { cameraDistance } from '../public/js/core/anchorPick.js';
+import { cameraDistance, pickHitItem } from '../public/js/core/anchorPick.js';
 import { createDistanceGate, ENGAGE_BELOW, RELEASE_ABOVE } from '../public/js/core/distanceGate.js';
 import { createBackdrop } from '../public/js/core/backdrop.js';
 import { makeMask } from '../public/js/core/mask.js';
@@ -118,6 +118,45 @@ check('mask: beyond the tolerance is a miss', mask.isBody(0.20, 0.5, 0.03) === f
 check('mask: well outside the body is a miss', mask.isBody(0.05, 0.05, 0.03) === false);
 check('mask: off the mesh entirely is a miss, not a wrap-around hit',
   mask.isBody(-0.4, 0.5, 0.03) === false && mask.isBody(0.5, 1.6, 0.03) === false);
+
+// --- pickHitItem (multiple hides on one marker) -----------------------------
+// Same body mask as above, reused for several fake "silhouettes" — pickHitItem
+// only needs `mesh.{position,scale,rotation,renderOrder}` and `mask.isBody()`.
+
+function fakeItem({ x = 0, y = 0, renderOrder = 10, found = false } = {}) {
+  return {
+    found,
+    silhouette: { mesh: { position: { x, y }, scale: { x: 1, y: 1 }, rotation: { z: 0 }, renderOrder } },
+    mask,
+  };
+}
+const tmpUv = new THREE.Vector2();
+const origin = new THREE.Vector3(0, 0, 0);
+
+check('pickHitItem: a point inside exactly one item\'s body picks it',
+  pickHitItem(origin, [fakeItem({ renderOrder: 10 })], tmpUv) !== null);
+
+check('pickHitItem: outside every body is a miss',
+  pickHitItem(new THREE.Vector3(5, 5, 0), [fakeItem({ renderOrder: 10 })], tmpUv) === null);
+
+{
+  const low = fakeItem({ renderOrder: 10 });
+  const high = fakeItem({ renderOrder: 12 });
+  const winner = pickHitItem(origin, [low, high], tmpUv);
+  check('pickHitItem: overlapping items pick the higher renderOrder (drawn on top)',
+    winner === high);
+}
+
+{
+  const found = fakeItem({ renderOrder: 12, found: true });
+  const under = fakeItem({ renderOrder: 10 });
+  const winner = pickHitItem(origin, [found, under], tmpUv);
+  check('pickHitItem: a found item is skipped, falls through to the one underneath',
+    winner === under);
+}
+
+check('pickHitItem: every item found → miss, not a crash',
+  pickHitItem(origin, [fakeItem({ renderOrder: 10, found: true })], tmpUv) === null);
 
 // --- backdrop --------------------------------------------------------------
 // colorSpace is the one that fails silently: wrong value, every colour shifts,

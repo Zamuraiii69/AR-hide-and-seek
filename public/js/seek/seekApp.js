@@ -18,7 +18,7 @@ import { createSilhouette } from '../core/silhouette.js';
 import { createBackdrop } from '../core/backdrop.js';
 import { loadMask } from '../core/mask.js';
 import {
-  screenToNDC, pickAnchorPlane, localToMeshUV, localToMarkerUV, cameraDistance,
+  screenToNDC, pickAnchorPlane, pickHitItem, localToMarkerUV, cameraDistance,
 } from '../core/anchorPick.js';
 import { getJSON, postJSON } from '../core/api.js';
 import { bindPointer } from '../core/pointer.js';
@@ -94,27 +94,22 @@ async function boot() {
   const hide = await getJSON(`/api/hides/${hideId}`);
   const maxTaps = Number(hide.maxTaps);
   if (!Number.isInteger(maxTaps) || maxTaps < 1) throw new Error('กติกาจำนวนครั้งที่ทายไม่ถูกต้อง');
-  if (!hide.silhouetteUrl) throw new Error('ไม่พบรูปทรงของที่ซ่อนนี้ — ข้อมูลอาจเสียหาย');
-  const maskUrl = hide.silhouetteUrl;
   $('stats-link').href = `/stats.html?hide=${hideId}`;
+
+  // Every active hide on this marker plays in the same round — not just the
+  // one this link points at. The API already returns them all when `limit`
+  // is omitted, so this is the whole trick: no new endpoint, no schema change.
+  const siblings = await getJSON(`/api/markers/${hide.markerId}/hides`);
+  if (!siblings.length) throw new Error('ที่ซ่อนนี้ถูกลบไปแล้ว');
 
   // The marker image is optional the same way it is in hide mode: without it
   // there is no backdrop, the game still runs against the live camera image.
-  const [mask, silhouette, image] = await Promise.all([
-    loadMask(maskUrl),
-    createSilhouette({ maskUrl }),
-    hide.marker.imageUrl
-      ? loadMarkerImage(hide.marker.imageUrl).catch((error) => {
-        console.warn('backdrop unavailable:', error.message);
-        return null;
-      })
-      : null,
-  ]);
-
-  // The saved paint IS the camouflage — a failure here would show the hider's
-  // flat base colour, which gives the answer away. Let it reject boot().
-  await silhouette.loadPaint(hide.paintUrl);
-  silhouette.setTransform(hide.transform);
+  const image = hide.marker.imageUrl
+    ? await loadMarkerImage(hide.marker.imageUrl).catch((error) => {
+      console.warn('backdrop unavailable:', error.message);
+      return null;
+    })
+    : null;
 
   const session = createArSession({
     container: $('ar'),
@@ -126,44 +121,67 @@ async function boot() {
 
   const backdrop = image ? createBackdrop({ image, aspect: hide.marker.aspect }) : null;
   if (backdrop) session.group.add(backdrop.mesh);
-  session.group.add(silhouette.mesh);
 
   // --- reveal ---------------------------------------------------------------
-  // A copy of the silhouette shape drawn UNDER it (renderOrder 9 vs 10) and
+  // A copy of the silhouette shape drawn UNDER it (renderOrder one below) and
   // scaled up, so the pulse reads as an outline. alphaTest is low here because
   // the halo fades via opacity, and the render cutoff would clip it off.
 
-  const halo = new THREE.Mesh(
-    new THREE.PlaneGeometry(1, 1),
-    new THREE.MeshBasicMaterial({
-      alphaMap: silhouette.maskTexture, color: 0xffe9a8,
-      transparent: true, alphaTest: 0.05, opacity: 0,
-      depthTest: false, depthWrite: false,
-      side: THREE.DoubleSide, toneMapped: false, fog: false,
-    }),
-  );
-  halo.renderOrder = 9;
-  halo.frustumCulled = false;
-  halo.visible = false;
-  session.group.add(halo);
+  function buildHalo(silhouette, renderOrder) {
+    const halo = new THREE.Mesh(
+      new THREE.PlaneGeometry(1, 1),
+      new THREE.MeshBasicMaterial({
+        alphaMap: silhouette.maskTexture, color: 0xffe9a8,
+        transparent: true, alphaTest: 0.05, opacity: 0,
+        depthTest: false, depthWrite: false,
+        side: THREE.DoubleSide, toneMapped: false, fog: false,
+      }),
+    );
+    halo.renderOrder = renderOrder;
+    halo.frustumCulled = false;
+    halo.visible = false;
+    return halo;
+  }
 
-  let revealStart = 0;
+  // Every hide on the marker gets its own mask/silhouette/halo, all sharing
+  // this one AR session — MindAR tracks one image target regardless of how
+  // many items are anchored under it (§arSession.js). renderOrder is
+  // diversified per item so overlapping silhouettes don't draw in an
+  // undefined order (they'd otherwise all default to the same value).
+  const items = await Promise.all(siblings.map(async (h, index) => {
+    if (!h.silhouetteUrl) throw new Error('ไม่พบรูปทรงของที่ซ่อนบางชิ้น — ข้อมูลอาจเสียหาย');
+    const renderOrder = 10 + index * 2;
+    const [mask, silhouette] = await Promise.all([
+      loadMask(h.silhouetteUrl),
+      createSilhouette({ maskUrl: h.silhouetteUrl, renderOrder }),
+    ]);
+    // The saved paint IS the camouflage — a failure here would show the
+    // hider's flat base colour, which gives the answer away. Let it reject boot().
+    await silhouette.loadPaint(h.paintUrl);
+    silhouette.setTransform(h.transform);
+    const halo = buildHalo(silhouette, renderOrder - 1);
+    session.group.add(silhouette.mesh);
+    session.group.add(halo);
+    return {
+      id: h.id, silhouette, mask, halo, revealStart: 0, found: false,
+    };
+  }));
 
-  function tickReveal(now) {
-    if (!revealStart) return;
-    const t = (now - revealStart) / REVEAL_MS;
+  function tickReveal(item, now) {
+    if (!item.revealStart) return;
+    const t = (now - item.revealStart) / REVEAL_MS;
     if (t >= 1) {
-      halo.visible = false;
-      revealStart = 0;
+      item.halo.visible = false;
+      item.revealStart = 0;
       return;
     }
     const cycle = (t * REVEAL_PULSES) % 1;
     const k = 1 + cycle * HALO_GROW;
-    halo.visible = true;
-    halo.position.copy(silhouette.mesh.position);
-    halo.rotation.z = silhouette.mesh.rotation.z;
-    halo.scale.set(silhouette.mesh.scale.x * k, silhouette.mesh.scale.y * k, 1);
-    halo.material.opacity = (1 - cycle) * 0.85;
+    item.halo.visible = true;
+    item.halo.position.copy(item.silhouette.mesh.position);
+    item.halo.rotation.z = item.silhouette.mesh.rotation.z;
+    item.halo.scale.set(item.silhouette.mesh.scale.x * k, item.silhouette.mesh.scale.y * k, 1);
+    item.halo.material.opacity = (1 - cycle) * 0.85;
   }
 
   // --- distance gate --------------------------------------------------------
@@ -175,7 +193,7 @@ async function boot() {
   }
 
   session.onFrame((now) => {
-    tickReveal(now);
+    for (const item of items) tickReveal(item, now);
     if (state.mode !== 'HUNTING') return;
     if (!session.visible) {
       // No pose, no distance. Drop the overlay rather than freeze it on screen.
@@ -195,35 +213,43 @@ async function boot() {
       return dot;
     }));
     setText($('guess-label'), `เหลือ ${left} ครั้ง`);
+    const foundCount = items.filter((item) => item.found).length;
+    setText($('found-label'), `เจอแล้ว ${foundCount}/${items.length}`);
   }
 
-  async function finish(found) {
+  async function finish() {
     setState('RESULT');
     // The frame loop stops updating the gate outside HUNTING, so drop it here
     // rather than leaving an overlay nobody can clear.
     if (gate.reset()) applyGate(false);
-    revealStart = performance.now();      // reveal on a loss too — that is the payoff
-    setText($('result-title'), found ? 'เจอแล้ว! 🎉' : 'หมดสิทธิ์แล้ว');
-    setText($('result-note'), found
+    const now = performance.now();
+    for (const item of items) if (!item.found) item.revealStart = now; // reveal the rest — that is the payoff
+
+    const foundCount = items.filter((item) => item.found).length;
+    const allFound = foundCount === items.length;
+    setText($('result-title'), allFound ? 'เจอครบแล้ว! 🎉' : `เจอ ${foundCount}/${items.length}`);
+    setText($('result-note'), allFound
       ? `ใช้ไป ${state.taps.length} ครั้ง`
-      : 'ตำแหน่งที่ซ่อนถูกเปิดให้ดูแล้ว — ลองสังเกตรอยแปรงรอบ ๆ');
+      : 'ตำแหน่งที่เหลือถูกเปิดให้ดูแล้ว — ลองสังเกตรอยแปรงรอบ ๆ');
     setText($('result-stats'), '');
 
-    try {
-      const result = await postJSON('/api/seeks', {
-        hideId,
-        found: found ? 1 : 0,
-        tapsUsed: state.taps.length,
-        durationMs: Math.round(performance.now() - state.startedAt),
-        taps: state.taps,
+    // One /api/seeks row per hide, all sharing this round's tap list — each
+    // recomputes its own `hit` flags so the server's existing per-hide
+    // validation (found === some tap hit) passes unmodified for every item.
+    const results = await Promise.allSettled(items.map((item) => {
+      const taps = state.taps.map((t) => ({ u: t.u, v: t.v, hit: t.hitId === item.id }));
+      return postJSON('/api/seeks', {
+        hideId: item.id,
+        found: item.found ? 1 : 0,
+        tapsUsed: taps.length,
+        durationMs: Math.round(now - state.startedAt),
+        taps,
       });
-      const { attempts, found: foundCount, avgTaps } = result.stats;
-      setText($('result-stats'),
-        `ที่ซ่อนนี้ถูกตามหา ${attempts} ครั้ง เจอ ${foundCount} ครั้ง`
-        + (avgTaps === null ? '' : ` เฉลี่ย ${avgTaps} ทาย/ครั้ง`));
-    } catch (error) {
-      setText($('result-stats'), `บันทึกผลไม่สำเร็จ: ${error.message}`);
-    }
+    }));
+    const failed = results.find((r) => r.status === 'rejected');
+    setText($('result-stats'), failed
+      ? `บันทึกผลบางส่วนไม่สำเร็จ: ${failed.reason.message}`
+      : `บันทึกผลครบ ${items.length} ที่ซ่อนแล้ว`);
   }
 
   function guess(event) {
@@ -232,10 +258,9 @@ async function boot() {
     if (!p) return;
 
     // Two different spaces on purpose: the hit test needs the tap relative to
-    // the silhouette (mesh uv), while the stored heatmap point must be relative
-    // to the MARKER — that is what stays comparable across hides and shows
-    // whether players searched sensibly (§5.5).
-    localToMeshUV(p, silhouette.mesh, meshUv);
+    // each silhouette (mesh uv), while the stored heatmap point must be
+    // relative to the MARKER — that is what stays comparable across hides and
+    // shows whether players searched sensibly (§5.5).
     localToMarkerUV(p, hide.marker.aspect, markerUv);
     if (markerUv.x < 0 || markerUv.x > 1 || markerUv.y < 0 || markerUv.y > 1) {
       setStatus('แตะบนรูป marker');
@@ -244,17 +269,19 @@ async function boot() {
       }, 1200);
       return;
     }
-    const hitBody = mask.isBody(meshUv.x, meshUv.y, HIT_TOL);
+    const hitItem = pickHitItem(p, items, meshUv, HIT_TOL);
 
-    state.taps.push({ u: markerUv.x, v: markerUv.y, hit: hitBody });
+    state.taps.push({ u: markerUv.x, v: markerUv.y, hitId: hitItem ? hitItem.id : null });
     renderGuesses();
 
-    if (hitBody) {
-      finish(true);
-      return;
+    if (hitItem) {
+      hitItem.found = true;
+      hitItem.revealStart = performance.now();
+      if (items.every((item) => item.found)) finish();
+      return;                       // a hit isn't a miss — keep hunting either way
     }
     ripple(event);
-    if (state.taps.length >= maxTaps) finish(false);
+    if (state.taps.length >= maxTaps) finish();
   }
 
   bindPointer(session.renderer.domElement, {
