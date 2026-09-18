@@ -32,6 +32,7 @@
     .pose-stats th { color:#5f6870; font-size:.8rem; font-weight:600; }
     .pose-stats td { font-variant-numeric:tabular-nums; color:#16181a; }
     #pose-stats-empty { color:#5f6870; padding:10px 0 0; }
+    #pose-stats-scope { color:#5f6870; font-size:.85rem; margin:6px 0 0; }
     @media (max-width:620px) { header { display:block; } header .button { width:100%; margin-top:14px; } .metrics { grid-template-columns:1fr 1fr; } .metric:nth-child(2) { border-right:0; } .metric:nth-child(-n+2) { border-bottom:1px solid #e2e3df; } .heatmap-head { align-items:flex-start; flex-direction:column; } }
   </style>
 </head>
@@ -55,8 +56,9 @@
     </section>
     <section class="pose-stats">
       <h2>Pose balance</h2>
+      <p id="pose-stats-scope">ทุก marker</p>
       <table id="pose-stats-table" hidden>
-        <thead><tr><th>Pose</th><th>Attempts</th><th>Hides</th><th>Found rate</th><th>Avg taps</th></tr></thead>
+        <thead><tr><th>Pose</th><th>รอบที่เล่น</th><th>ถูกตามหา</th><th>Hides</th><th>Found rate</th><th>Avg taps</th></tr></thead>
         <tbody></tbody>
       </table>
       <p id="pose-stats-empty" hidden>No seeks recorded yet.</p>

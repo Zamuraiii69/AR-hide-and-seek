@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS seeks (
   hide_id INTEGER NOT NULL REFERENCES hides(id) ON DELETE CASCADE,
   seeker_name TEXT, found INTEGER NOT NULL, taps_used INTEGER NOT NULL,
   duration_ms INTEGER, taps_json TEXT NOT NULL DEFAULT '[]',   -- [{u,v,hit}] -> heatmap
+  round_id TEXT,                               -- one play-through writes one row PER HIDE
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_seeks_hide ON seeks(hide_id);
@@ -82,6 +83,16 @@ if (db.prepare('PRAGMA user_version').get().user_version < 2) {
     db.exec('ALTER TABLE markers ADD COLUMN custom_pose_count INTEGER NOT NULL DEFAULT 0');
   }
   db.exec('PRAGMA user_version = 2');
+}
+
+// A seek round covers every hide on the marker and writes one row per hide, so
+// counting rows overstates how many times the game was actually played.
+// round_id groups those siblings. Rows written before this point have no group
+// and are counted as a round of their own (see the COALESCE in the queries).
+if (db.prepare('PRAGMA user_version').get().user_version < 3) {
+  const cols = db.prepare('PRAGMA table_info(seeks)').all().map((c) => c.name);
+  if (!cols.includes('round_id')) db.exec('ALTER TABLE seeks ADD COLUMN round_id TEXT');
+  db.exec('PRAGMA user_version = 3');
 }
 
 // --- Prepared statements ---------------------------------------------------
@@ -118,6 +129,7 @@ const stmt = {
     byMarker: db.prepare(`
       SELECT * FROM hides WHERE marker_id = ? AND is_active = 1
       ORDER BY created_at DESC`),
+    deactivateByMarker: db.prepare('UPDATE hides SET is_active = 0 WHERE marker_id = ? AND is_active = 1'),
     seekStats: db.prepare(`
       SELECT COUNT(*) AS attempts, COALESCE(SUM(found), 0) AS found_count,
              AVG(taps_used) AS avg_taps          -- NULL until the first attempt
@@ -125,8 +137,8 @@ const stmt = {
   },
   seeks: {
     insert: db.prepare(`
-      INSERT INTO seeks (hide_id, seeker_name, found, taps_used, duration_ms, taps_json)
-      VALUES (?, ?, ?, ?, ?, ?)`),
+      INSERT INTO seeks (hide_id, seeker_name, found, taps_used, duration_ms, taps_json, round_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`),
     byHide: db.prepare(`
       SELECT id, found, taps_used, duration_ms, taps_json, created_at
       FROM seeks WHERE hide_id = ?
@@ -134,14 +146,19 @@ const stmt = {
       LIMIT ?`),
   },
   stats: {
+    // Pass the same marker id twice to scope the table, or null twice for the
+    // global aggregate. `attempts` counts per-hide hunts; `rounds` counts the
+    // play-throughs behind them, which is the number a player recognises.
     byPose: db.prepare(`
       SELECT h.silhouette_id                       AS poseId,
              count(*)                              AS attempts,
+             count(DISTINCT coalesce(s.round_id, 'seek-' || s.id)) AS rounds,
              sum(s.found)                          AS found,
              avg(s.taps_used)                      AS avgTaps,
              avg(s.duration_ms)                    AS avgDurationMs,
              count(DISTINCT h.id)                  AS hides
       FROM seeks s JOIN hides h ON h.id = s.hide_id
+      WHERE (? IS NULL OR h.marker_id = ?)
       GROUP BY h.silhouette_id
       ORDER BY attempts DESC`),
   },

@@ -45,7 +45,7 @@ function validFound(value) {
 }
 
 router.post('/', (req, res, next) => {
-  const { hideId, seekerName, found, tapsUsed, durationMs, taps } = req.body || {};
+  const { hideId, seekerName, found, tapsUsed, durationMs, taps, roundId } = req.body || {};
 
   const id = Number(hideId);
   if (!Number.isInteger(id) || id < 1) return fail(res, 400, 'hideId must be a positive integer');
@@ -85,6 +85,9 @@ router.post('/', (req, res, next) => {
       hide.id,
       seekerName ? String(seekerName).slice(0, 120) : null,
       foundFlag, used, duration, tapsJson,
+      // Groups the sibling rows one round writes across the marker's hides.
+      // Absent (an older client) means "count this row as its own round".
+      roundId ? String(roundId).slice(0, 64) : null,
     );
     res.status(201).json({ id: Number(info.lastInsertRowid), stats: statsFor(hide.id) });
   } catch (err) {

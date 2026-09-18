@@ -240,6 +240,8 @@ function markerCard(marker) {
         <a class="button" href="/hide.html?marker=${marker.id}">Hide here</a>
         <button class="secondary seek-marker" type="button" data-marker-id="${marker.id}"
           ${hideCount ? '' : 'disabled title="ยังไม่มีคนซ่อนใน marker นี้"'}>Find someone</button>
+        ${hideCount ? `<button class="secondary clear-hides" type="button" data-marker-id="${marker.id}"
+          data-hide-count="${hideCount}">ล้างที่ซ่อน</button>` : ''}
       </div>
       <div class="card-note" data-marker-note="${marker.id}">${hideCount ? '' : 'ยังไม่มีที่ซ่อนให้ค้นหา'}</div>`
     : '<a class="button disabled" aria-disabled="true">Pending</a>';
@@ -272,6 +274,27 @@ async function loadMarkers() {
 }
 
 refreshBtn.addEventListener('click', loadMarkers);
+// Hides stay active until someone clears them, so a marker played over several
+// days keeps every one of them and a seek round asks for all at once. This is
+// the only way to end a round.
+markersEl.addEventListener('click', async (event) => {
+  const button = event.target.closest('.clear-hides');
+  if (!button || button.disabled) return;
+  const markerId = Number(button.dataset.markerId);
+  const count = button.dataset.hideCount;
+  if (!confirm(`ล้างที่ซ่อนทั้ง ${count} อันของ marker นี้? ผู้เล่นจะหาไม่เจออีก (สถิติเดิมยังอยู่)`)) return;
+  const note = markersEl.querySelector(`[data-marker-note="${markerId}"]`);
+  button.disabled = true;
+  try {
+    const res = await fetch(`/api/markers/${markerId}/hides`, { method: 'DELETE' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    await loadMarkers();
+  } catch (err) {
+    if (note) note.textContent = err.message || 'ล้างที่ซ่อนไม่สำเร็จ';
+    button.disabled = false;
+  }
+});
+
 markersEl.addEventListener('click', async (event) => {
   const button = event.target.closest('.seek-marker');
   if (!button || button.disabled) return;

@@ -38,9 +38,8 @@ function drawHeatmap(image, seeks) {
 }
 
 // 'custom_1' -> 'Custom 1'; built-in ids ('human_a', legacy 'human_default')
-// render as-is — this table is a global aggregate across every marker
-// (R1 in the design doc: custom_N merges across markers), so it has no
-// per-marker pose list to look a label up in.
+// render as-is — the table aggregates by raw pose id (R1 in the design doc:
+// custom_N merges across markers), so it has no pose list to look a label up in.
 function poseLabel(poseId) {
   const match = /^custom_(\d+)$/.exec(poseId);
   return match ? `Custom ${match[1]}` : poseId;
@@ -60,6 +59,7 @@ function renderPoseStats(poses) {
     const row = document.createElement('tr');
     const cells = [
       poseLabel(pose.poseId),
+      pose.rounds,
       pose.attempts,
       pose.hides,
       `${Math.round(pose.foundRate * 100)}%`,
@@ -76,17 +76,26 @@ function renderPoseStats(poses) {
   empty.hidden = true;
 }
 
-// Independent of ?hide= — always shows every pose's global aggregate, so it
-// fetches on its own rather than riding along with boot()'s hide-specific
-// calls (a bad/missing ?hide= must not prevent this table from rendering).
-async function loadPoseStats() {
+// Scoped to the hide's own marker when we know it: an unscoped table sitting
+// under one hide's numbers reads as a contradiction, because it silently sums
+// every marker ever played. Falls back to the global view when the marker is
+// unknown, so a bad/missing ?hide= still renders something.
+async function loadPoseStats(markerId) {
+  const scoped = Number.isInteger(markerId) && markerId > 0;
+  $('pose-stats-scope').textContent = scoped ? 'เฉพาะ marker ของที่ซ่อนนี้' : 'ทุก marker';
   try {
-    const { poses } = await getJSON('/api/stats/poses');
+    const { poses } = await getJSON(`/api/stats/poses${scoped ? `?marker=${markerId}` : ''}`);
     renderPoseStats(poses);
   } catch (error) {
     $('pose-stats-status').textContent = error.message;
   }
 }
+
+// Shared with the pose table so both read the same hide without fetching twice,
+// while each still handles its own failure.
+const hidePromise = Number.isInteger(hideId) && hideId > 0
+  ? getJSON(`/api/hides/${hideId}`)
+  : Promise.reject(new Error('ลิงก์นี้ไม่มีรหัสที่ซ่อน (?hide=)'));
 
 async function boot() {
   if (!Number.isInteger(hideId) || hideId < 1) throw new Error('ลิงก์นี้ไม่มีรหัสที่ซ่อน (?hide=)');
@@ -94,7 +103,7 @@ async function boot() {
   $('hunt-link').textContent = 'เปิดการค้นหา';
 
   const [hide, analytics] = await Promise.all([
-    getJSON(`/api/hides/${hideId}`),
+    hidePromise,
     getJSON(`/api/hides/${hideId}/seeks`),
   ]);
   const { attempts, found, foundRate, avgTaps } = analytics.stats;
@@ -117,4 +126,4 @@ boot().catch((error) => {
   $('subtitle').textContent = 'เปิดสถิติไม่สำเร็จ';
   $('status').textContent = error.message;
 });
-loadPoseStats();
+hidePromise.then((hide) => hide.markerId, () => null).then(loadPoseStats);

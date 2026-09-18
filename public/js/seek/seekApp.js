@@ -17,6 +17,7 @@ import { createArSession, filterFromSearch } from '../core/arSession.js';
 import { createSilhouette } from '../core/silhouette.js';
 import { createBackdrop } from '../core/backdrop.js';
 import { loadMask } from '../core/mask.js';
+import { tapsForItem } from '../core/seekRound.js';
 import {
   screenToNDC, pickAnchorPlane, pickHitItem, localToMarkerUV, cameraDistance,
 } from '../core/anchorPick.js';
@@ -245,13 +246,16 @@ async function boot() {
       : `${tally}ตำแหน่งที่ซ่อนถูกเปิดให้ดูแล้ว — ลองสังเกตรอยแปรงรอบ ๆ`);
     setText($('result-stats'), '');
 
-    // One /api/seeks row per hide, all sharing this round's tap list — each
-    // recomputes its own `hit` flags so the server's existing per-hide
-    // validation (found === some tap hit) passes unmodified for every item.
+    // One /api/seeks row per hide, all tagged with this round's id so the stats
+    // pages can tell "played once against four hides" from "played four times".
+    // Each row recomputes its own `hit` flags, so the server's per-hide
+    // validation (found === some tap hit) passes unmodified.
+    const roundId = crypto.randomUUID();
     const results = await Promise.allSettled(items.map((item) => {
-      const taps = state.taps.map((t) => ({ u: t.u, v: t.v, hit: t.hitId === item.id }));
+      const taps = tapsForItem(state.taps, item.id);
       return postJSON('/api/seeks', {
         hideId: item.id,
+        roundId,
         found: item.found ? 1 : 0,
         tapsUsed: taps.length,
         durationMs: Math.round(now - state.startedAt),

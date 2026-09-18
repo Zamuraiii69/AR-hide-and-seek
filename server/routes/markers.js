@@ -241,4 +241,14 @@ router.get('/:id/hides', (req, res) => {
   })));
 });
 
+// DELETE /api/markers/:id/hides → retire every active hide on this marker.
+// Nothing else ever clears them, so without this a marker accumulates every
+// hide ever made on it and a seek round asks players to find all of them.
+// Soft delete: the paint files and seek history stay for the stats pages.
+router.delete('/:id/hides', (req, res) => {
+  const id = Number(req.params.id);
+  if (!stmt.markers.byId.get(id)) return res.status(404).json({ error: 'marker not found' });
+  res.json({ cleared: stmt.hides.deactivateByMarker.run(id).changes });
+});
+
 module.exports = router;
