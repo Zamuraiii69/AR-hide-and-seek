@@ -21,7 +21,9 @@ const _texLoader = new THREE.TextureLoader();
  * Build a silhouette. `maskUrl` supplies the alphaMap (green channel = body).
  * Returns the mesh plus paint surface handles and small transform helpers.
  */
-export async function createSilhouette({ maskUrl, paintRes = PAINT_RES, baseColor = BASE_COLOR } = {}) {
+export async function createSilhouette({
+  maskUrl, paintRes = PAINT_RES, baseColor = BASE_COLOR, renderOrder = 10,
+} = {}) {
   // --- alpha mask texture (keep NoColorSpace; SRGB would shift the alpha edge) ---
   let maskTexture = await _texLoader.loadAsync(maskUrl);
   maskTexture.generateMipmaps = false;
@@ -50,7 +52,7 @@ export async function createSilhouette({ maskUrl, paintRes = PAINT_RES, baseColo
 
   const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), material);
   mesh.position.set(0, 0, Z_SILHOUETTE);
-  mesh.renderOrder = 10;
+  mesh.renderOrder = renderOrder;
   mesh.frustumCulled = false;
 
   // --- helpers ---------------------------------------------------------------

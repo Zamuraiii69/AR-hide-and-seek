@@ -88,3 +88,20 @@ export function localToMeshUV(p, mesh, out) {
   out.y = (dx * s + dy * c) / h + 0.5;
   return out;
 }
+
+/**
+ * Multi-item hit test for the seek screen: which unfound item (if any) does
+ * anchor-local point `p` land on? Ties (overlapping items) go to the one
+ * drawn on top (higher mesh.renderOrder) — matches what the player sees.
+ * `items` is [{ found, silhouette: { mesh }, mask }]. `tmpUv` is scratch.
+ */
+export function pickHitItem(p, items, tmpUv, tol = 0.03) {
+  let winner = null;
+  for (const item of items) {
+    if (item.found) continue;
+    localToMeshUV(p, item.silhouette.mesh, tmpUv);
+    if (!item.mask.isBody(tmpUv.x, tmpUv.y, tol)) continue;
+    if (!winner || item.silhouette.mesh.renderOrder > winner.silhouette.mesh.renderOrder) winner = item;
+  }
+  return winner;
+}
