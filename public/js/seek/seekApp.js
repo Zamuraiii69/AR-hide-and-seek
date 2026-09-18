@@ -29,6 +29,7 @@ import { setMode, setText } from '../core/hud.js';
 const $ = (id) => document.getElementById(id);
 
 const HIT_TOL = 0.03;             // ring probe in mesh uv — lenient on purpose
+const MAX_ITEMS = 8;              // ponytail: flat cap, paginate if markers ever get crowded
 const REVEAL_MS = 1500;
 const REVEAL_PULSES = 3;
 const HALO_GROW = 0.35;           // outline expands to 1.35× before fading
@@ -102,6 +103,16 @@ async function boot() {
   const siblings = await getJSON(`/api/markers/${hide.markerId}/hides`);
   if (!siblings.length) throw new Error('ที่ซ่อนนี้ถูกลบไปแล้ว');
 
+  // Anyone can keep adding hides to a popular marker, so that list has no
+  // upper bound. Each item costs a 512² paint canvas plus two textures, and
+  // one shared tap budget makes a round of more than a handful unplayable
+  // anyway. Keep the linked hide first — a share link must always include its
+  // own item — then the newest of the rest.
+  const roster = [
+    ...siblings.filter((h) => h.id === hideId),
+    ...siblings.filter((h) => h.id !== hideId),
+  ].slice(0, MAX_ITEMS);
+
   // The marker image is optional the same way it is in hide mode: without it
   // there is no backdrop, the game still runs against the live camera image.
   const image = hide.marker.imageUrl
@@ -148,7 +159,7 @@ async function boot() {
   // many items are anchored under it (§arSession.js). renderOrder is
   // diversified per item so overlapping silhouettes don't draw in an
   // undefined order (they'd otherwise all default to the same value).
-  const items = await Promise.all(siblings.map(async (h, index) => {
+  const items = await Promise.all(roster.map(async (h, index) => {
     if (!h.silhouetteUrl) throw new Error('ไม่พบรูปทรงของที่ซ่อนบางชิ้น — ข้อมูลอาจเสียหาย');
     const renderOrder = 10 + index * 2;
     const [mask, silhouette] = await Promise.all([
@@ -214,7 +225,7 @@ async function boot() {
     }));
     setText($('guess-label'), `เหลือ ${left} ครั้ง`);
     const foundCount = items.filter((item) => item.found).length;
-    setText($('found-label'), `เจอแล้ว ${foundCount}/${items.length}`);
+    setText($('found-label'), items.length > 1 ? `เจอแล้ว ${foundCount}/${items.length}` : '');
   }
 
   async function finish() {
@@ -227,10 +238,11 @@ async function boot() {
 
     const foundCount = items.filter((item) => item.found).length;
     const allFound = foundCount === items.length;
-    setText($('result-title'), allFound ? 'เจอครบแล้ว! 🎉' : `เจอ ${foundCount}/${items.length}`);
+    const tally = items.length > 1 ? `เจอ ${foundCount}/${items.length} — ` : '';
+    setText($('result-title'), allFound ? 'เจอแล้ว! 🎉' : 'หมดสิทธิ์แล้ว');
     setText($('result-note'), allFound
-      ? `ใช้ไป ${state.taps.length} ครั้ง`
-      : 'ตำแหน่งที่เหลือถูกเปิดให้ดูแล้ว — ลองสังเกตรอยแปรงรอบ ๆ');
+      ? `${tally}ใช้ไป ${state.taps.length} ครั้ง`
+      : `${tally}ตำแหน่งที่ซ่อนถูกเปิดให้ดูแล้ว — ลองสังเกตรอยแปรงรอบ ๆ`);
     setText($('result-stats'), '');
 
     // One /api/seeks row per hide, all sharing this round's tap list — each
@@ -277,11 +289,16 @@ async function boot() {
     if (hitItem) {
       hitItem.found = true;
       hitItem.revealStart = performance.now();
-      if (items.every((item) => item.found)) finish();
-      return;                       // a hit isn't a miss — keep hunting either way
+    } else {
+      ripple(event);
     }
-    ripple(event);
-    if (state.taps.length >= maxTaps) finish();
+
+    // The budget check must run on a HIT too. A hit that does not complete the
+    // set still spends the tap, and letting the round continue past maxTaps
+    // pushes state.taps over the server's cap — /api/seeks then rejects every
+    // item's submission (seeks.js: taps.length > MAX_TAPS) and the whole
+    // round is lost, not just the overflow.
+    if (items.every((item) => item.found) || state.taps.length >= maxTaps) finish();
   }
 
   bindPointer(session.renderer.domElement, {
