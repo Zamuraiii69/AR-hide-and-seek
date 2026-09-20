@@ -119,6 +119,7 @@ const stmt = {
       WHERE id = ?`),
     hideCount: db.prepare('SELECT COUNT(*) AS n FROM hides WHERE marker_id = ? AND is_active = 1'),
     setPoseCount: db.prepare('UPDATE markers SET custom_pose_count = ? WHERE id = ?'),
+    delete: db.prepare('DELETE FROM markers WHERE id = ?'),
   },
   hides: {
     insert: db.prepare(`
@@ -129,6 +130,7 @@ const stmt = {
     byMarker: db.prepare(`
       SELECT * FROM hides WHERE marker_id = ? AND is_active = 1
       ORDER BY created_at DESC`),
+    allByMarker: db.prepare('SELECT * FROM hides WHERE marker_id = ?'),
     deactivateByMarker: db.prepare('UPDATE hides SET is_active = 0 WHERE marker_id = ? AND is_active = 1'),
     seekStats: db.prepare(`
       SELECT COUNT(*) AS attempts, COALESCE(SUM(found), 0) AS found_count,

@@ -255,6 +255,8 @@ function markerCard(marker) {
           <span>${hideCount} hides</span>
         </div>
         ${actions}
+        <button class="secondary delete-marker" type="button" data-marker-id="${marker.id}"
+          data-marker-name="${escapeHtml(marker.name)}">ลบ marker นี้</button>
       </div>
     </article>`;
 }
@@ -310,6 +312,23 @@ markersEl.addEventListener('click', async (event) => {
     location.href = `/seek.html?hide=${hide.id}`;
   } catch (err) {
     if (note) note.textContent = err.message || 'เปิดที่ซ่อนไม่สำเร็จ';
+    button.disabled = false;
+  }
+});
+
+markersEl.addEventListener('click', async (event) => {
+  const button = event.target.closest('.delete-marker');
+  if (!button || button.disabled) return;
+  const markerId = Number(button.dataset.markerId);
+  const name = button.dataset.markerName;
+  if (!confirm(`ลบ marker "${name}" ทิ้งถาวร? รูป, target และที่ซ่อนทั้งหมดจะหายไปด้วย`)) return;
+  button.disabled = true;
+  try {
+    const res = await fetch(`/api/markers/${markerId}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    await loadMarkers();
+  } catch (err) {
+    alert(err.message || 'ลบ marker ไม่สำเร็จ');
     button.disabled = false;
   }
 });

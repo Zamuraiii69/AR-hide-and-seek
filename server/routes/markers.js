@@ -251,4 +251,24 @@ router.delete('/:id/hides', (req, res) => {
   res.json({ cleared: stmt.hides.deactivateByMarker.run(id).changes });
 });
 
+// DELETE /api/markers/:id → remove the marker entirely. Hides/seeks cascade
+// in the DB (ON DELETE CASCADE); their paint files don't, so those and the
+// marker's own files are cleaned up here first.
+router.delete('/:id', (req, res) => {
+  const id = Number(req.params.id);
+  const row = stmt.markers.byId.get(id);
+  if (!row) return res.status(404).json({ error: 'marker not found' });
+
+  for (const hide of stmt.hides.allByMarker.all(id)) {
+    storage.removeQuiet(storage.hidePaintPath(hide.id));
+  }
+  storage.removeQuiet(storage.markerImagePath(id));
+  storage.removeQuiet(storage.markerMindPath(id));
+  for (let slot = 1; slot <= row.custom_pose_count; slot++) {
+    storage.removeQuiet(storage.markerPosePath(id, slot));
+  }
+  stmt.markers.delete.run(id);
+  res.sendStatus(204);
+});
+
 module.exports = router;
