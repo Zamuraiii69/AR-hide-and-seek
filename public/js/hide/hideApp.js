@@ -470,11 +470,25 @@ async function boot() {
 
   // --- mode buttons ---------------------------------------------------------
 
+  // Editing aid only: fade the complete painted mesh, leaving the paint canvas
+  // (and saved PNG) opaque. Scale the alpha cutoff too, or opacity below 50%
+  // would discard the entire silhouette instead of blending with the backdrop.
+  const fullAlphaTest = silhouette.material.alphaTest;
+  function applyPaintOpacity() {
+    const percent = Number($('model-opacity').value);
+    const opacity = state.mode === 'PAINT' ? percent / 100 : 1;
+    silhouette.material.opacity = opacity;
+    silhouette.material.alphaTest = fullAlphaTest * opacity;
+    $('model-opacity-value').value = `${percent}%`;
+    $('model-opacity').setAttribute('aria-valuetext', `${percent}%`);
+  }
+  $('model-opacity').addEventListener('input', applyPaintOpacity);
+
   $('lock').addEventListener('click', () => {
-    if (state.fits) { setState('PAINT'); sizePreviewCanvas(); }
+    if (state.fits) { setState('PAINT'); applyPaintOpacity(); sizePreviewCanvas(); }
   });
-  $('review').addEventListener('click', () => setState('REVIEW'));
-  $('edit').addEventListener('click', () => { setState('PAINT'); sizePreviewCanvas(); });
+  $('review').addEventListener('click', () => { setState('REVIEW'); applyPaintOpacity(); });
+  $('edit').addEventListener('click', () => { setState('PAINT'); applyPaintOpacity(); sizePreviewCanvas(); });
   // Peek hides the silhouette but NOT the backdrop: the seeker sees the backdrop
   // too, so "what is left when the model goes away" is the right comparison.
   $('peek').addEventListener('click', () => {
