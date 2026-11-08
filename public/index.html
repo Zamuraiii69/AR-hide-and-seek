@@ -218,6 +218,7 @@
 
 <script type="module">
 import { initializeTopLevelDemoContext } from '/js/demoContext.js';
+import { adminHeaders, forgetAdminToken } from '/js/core/adminToken.js';
 initializeTopLevelDemoContext();
 
 const markersEl = document.getElementById('markers');
@@ -288,7 +289,8 @@ markersEl.addEventListener('click', async (event) => {
   const note = markersEl.querySelector(`[data-marker-note="${markerId}"]`);
   button.disabled = true;
   try {
-    const res = await fetch(`/api/markers/${markerId}/hides`, { method: 'DELETE' });
+    const res = await fetch(`/api/markers/${markerId}/hides`, { method: 'DELETE', headers: adminHeaders() });
+    if (res.status === 401) forgetAdminToken();
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     await loadMarkers();
   } catch (err) {
@@ -324,7 +326,8 @@ markersEl.addEventListener('click', async (event) => {
   if (!confirm(`ลบ marker "${name}" ทิ้งถาวร? รูป, target และที่ซ่อนทั้งหมดจะหายไปด้วย`)) return;
   button.disabled = true;
   try {
-    const res = await fetch(`/api/markers/${markerId}`, { method: 'DELETE' });
+    const res = await fetch(`/api/markers/${markerId}`, { method: 'DELETE', headers: adminHeaders() });
+    if (res.status === 401) forgetAdminToken();
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     await loadMarkers();
   } catch (err) {

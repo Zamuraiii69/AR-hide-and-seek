@@ -20,7 +20,7 @@ import { createBackdrop } from '../core/backdrop.js';
 import { loadMask } from '../core/mask.js';
 import { screenToNDC, pickAnchorPlane, localToMarkerUV } from '../core/anchorPick.js';
 import { toPreviewUV } from '../core/previewUv.js';
-import { getJSON, postJSON } from '../core/api.js';
+import { adminPostJSON, getJSON } from '../core/api.js';
 import { bindPointer } from '../core/pointer.js';
 import { createPlacement } from '../core/placement.js';
 import { createBrush } from '../core/brush.js';
@@ -501,7 +501,7 @@ async function boot() {
     setBusy($('save'), true);
     setText($('share'), '');
     try {
-      const result = await postJSON('/api/hides', {
+      const result = await adminPostJSON('/api/hides', {
         markerId,
         silhouetteId: state.pose,
         transform: {

@@ -68,5 +68,13 @@ them as local files if you need to re-run those experiments.
 ## Storage
 
 SQLite data and uploaded media are written under `data/` by default. Set
-`DATA_DIR` to use another directory. This PoC has no accounts or authorization;
-do not expose it as a production service.
+`DATA_DIR` to use another directory; on a host with an ephemeral filesystem,
+point it at a persistent disk or every redeploy loses markers and hides.
+
+## Admin writes
+
+Creating, uploading and deleting markers, and placing or clearing hides, need
+the `X-Admin-Token` header. Set `ADMIN_TOKEN` (at least 24 random characters)
+on the server; when it is missing or shorter, those writes return 503. The
+upload and hide pages ask for the token once per browser. Seeking and reading
+never need it. There are still no player accounts.

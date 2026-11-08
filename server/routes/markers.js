@@ -7,6 +7,7 @@
 // Raw PUT avoids base64 bloat + a multi-MB JSON.parse blocking the event loop.
 
 const express = require('express');
+const { requireAdmin } = require('../adminGate');
 const fs = require('fs');
 const { stmt } = require('../db');
 const storage = require('../storage');
@@ -104,7 +105,7 @@ router.get('/', (_req, res) => {
 });
 
 // POST /api/markers → create pending row
-router.post('/', (req, res) => {
+router.post('/', requireAdmin, (req, res) => {
   const { name, imageWidth, imageHeight, palette, grid } = req.body || {};
   const w = Number(imageWidth), h = Number(imageHeight);
   if (!name || !Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) {
@@ -128,7 +129,7 @@ router.get('/:id', (req, res) => {
 });
 
 // PUT /api/markers/:id/image → raw image/png
-router.put('/:id/image', rawImage, (req, res) => {
+router.put('/:id/image', requireAdmin, rawImage, (req, res) => {
   const id = Number(req.params.id);
   const row = stmt.markers.byId.get(id);
   if (!row) return res.status(404).json({ error: 'marker not found' });
@@ -147,7 +148,7 @@ router.put('/:id/image', rawImage, (req, res) => {
 });
 
 // PUT /api/markers/:id/target → raw .mind, marks marker 'ready'
-router.put('/:id/target', rawBinary, (req, res) => {
+router.put('/:id/target', requireAdmin, rawBinary, (req, res) => {
   const id = Number(req.params.id);
   const row = stmt.markers.byId.get(id);
   if (!row) return res.status(404).json({ error: 'marker not found' });
@@ -167,7 +168,7 @@ router.put('/:id/target', rawBinary, (req, res) => {
 // before it ever reaches a filesystem path — the one path-traversal surface
 // this feature adds. "Set once": a slot that already has a pose 409s instead
 // of overwriting.
-router.put('/:id/pose/:slot', rawPose, (req, res) => {
+router.put('/:id/pose/:slot', requireAdmin, rawPose, (req, res) => {
   const id = Number(req.params.id);
   const slot = Number(req.params.slot);
   if (!Number.isInteger(slot) || slot < 1 || slot > MAX_CUSTOM_POSES) {
@@ -245,7 +246,7 @@ router.get('/:id/hides', (req, res) => {
 // Nothing else ever clears them, so without this a marker accumulates every
 // hide ever made on it and a seek round asks players to find all of them.
 // Soft delete: the paint files and seek history stay for the stats pages.
-router.delete('/:id/hides', (req, res) => {
+router.delete('/:id/hides', requireAdmin, (req, res) => {
   const id = Number(req.params.id);
   if (!stmt.markers.byId.get(id)) return res.status(404).json({ error: 'marker not found' });
   res.json({ cleared: stmt.hides.deactivateByMarker.run(id).changes });
@@ -254,7 +255,7 @@ router.delete('/:id/hides', (req, res) => {
 // DELETE /api/markers/:id → remove the marker entirely. Hides/seeks cascade
 // in the DB (ON DELETE CASCADE); their paint files don't, so those and the
 // marker's own files are cleaned up here first.
-router.delete('/:id', (req, res) => {
+router.delete('/:id', requireAdmin, (req, res) => {
   const id = Number(req.params.id);
   const row = stmt.markers.byId.get(id);
   if (!row) return res.status(404).json({ error: 'marker not found' });
