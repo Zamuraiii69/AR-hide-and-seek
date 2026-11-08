@@ -9,8 +9,20 @@ export const MESSAGES = Object.freeze({
   unavailable: 'โหลดเกมไม่สำเร็จ กรุณาลองใหม่',
 });
 
+/**
+ * The query ARmap launched us with. A liff.line.me URL arrives as
+ * ?liff.state=<path+query>; liff.init normally redirects to unpack it, but if
+ * init fails or skips the redirect, unpack it here so the marker is not lost.
+ */
+export function launchSearch(search) {
+  const state = new URLSearchParams(search || '').get('liff.state');
+  if (!state) return search || '';
+  const query = state.indexOf('?');
+  return query === -1 ? '' : state.slice(query);
+}
+
 export function campaignMarkerSlug(search) {
-  const slug = new URLSearchParams(search || '').get('marker');
+  const slug = new URLSearchParams(launchSearch(search)).get('marker');
   return slug && slug.length <= 64 && SLUG_RE.test(slug) ? slug : null;
 }
 

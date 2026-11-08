@@ -222,7 +222,7 @@
 <script type="module">
 import { initializeTopLevelDemoContext } from '/js/demoContext.js';
 import { adminHeaders, forgetAdminToken } from '/js/core/adminToken.js';
-import { campaignMarkerSlug, enterCampaign } from '/js/campaignEntry.js';
+import { campaignMarkerSlug, enterCampaign, launchSearch } from '/js/campaignEntry.js';
 
 // LIFF first: liff.init turns liff.state (whatever followed the LIFF id in the
 // launch URL) back into location.search. Without LIFF the page works as before.
@@ -233,7 +233,7 @@ try {
   console.warn('LIFF unavailable:', err?.message || err);
 }
 // Store the ARmap reward context before leaving for seek.html (sessionStorage).
-initializeTopLevelDemoContext();
+initializeTopLevelDemoContext(launchSearch(location.search));
 const campaignSlug = campaignMarkerSlug(location.search);
 
 const markersEl = document.getElementById('markers');

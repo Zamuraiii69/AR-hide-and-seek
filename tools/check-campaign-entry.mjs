@@ -24,6 +24,14 @@ check('rejects a slug with spaces or capitals', campaignMarkerSlug('?marker=Soi%
 check('rejects an over-long slug', campaignMarkerSlug(`?marker=${'a'.repeat(65)}`) === null);
 check('no marker means no campaign entry', campaignMarkerSlug('') === null && campaignMarkerSlug('?source=linearmap') === null);
 
+// If liff.init fails or does not redirect, the launch query is still packed in liff.state.
+const { launchSearch } = await import('../public/js/campaignEntry.js');
+const packed = `?liff.state=${encodeURIComponent('?source=linearmap&claim=earned&reward=15&treasure=Wall 7&marker=soi-maew-07')}`;
+check('unpacks the launch query from liff.state', new URLSearchParams(launchSearch(packed)).get('claim') === 'earned');
+check('reads the marker from liff.state when init did not redirect', campaignMarkerSlug(packed) === 'soi-maew-07');
+check('unpacks liff.state that carries a path', campaignMarkerSlug(`?liff.state=${encodeURIComponent('/?marker=soi-maew-07')}`) === 'soi-maew-07');
+check('a plain query passes through unchanged', launchSearch('?marker=a') === '?marker=a');
+
 const json = (status, body) => ({ ok: status >= 200 && status < 300, status, json: async () => body });
 function fakeFetch(routes) {
   return async (url) => {
