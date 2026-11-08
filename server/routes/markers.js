@@ -121,6 +121,13 @@ router.post('/', requireAdmin, (req, res) => {
   res.status(201).json(toDetail(row));
 });
 
+// GET /api/markers/by-slug/:slug → full detail (campaign links name markers by slug)
+router.get('/by-slug/:slug', (req, res) => {
+  const row = stmt.markers.bySlug.get(String(req.params.slug));
+  if (!row) return res.status(404).json({ error: 'marker not found' });
+  res.json(toDetail(row));
+});
+
 // GET /api/markers/:id → full detail
 router.get('/:id', (req, res) => {
   const row = stmt.markers.byId.get(Number(req.params.id));

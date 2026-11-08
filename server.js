@@ -41,6 +41,7 @@ app.use('/api/markers', markersRouter);
 app.use('/api/hides', hidesRouter);
 app.use('/api/seeks', seeksRouter);
 app.use('/api/stats', statsRouter);
+app.use('/api/config', require('./server/routes/config'));
 
 // Health check
 app.get('/health', (_req, res) => {
