@@ -18,7 +18,8 @@ import { createArSession, filterFromSearch } from '../core/arSession.js';
 import { createSilhouette } from '../core/silhouette.js';
 import { createBackdrop } from '../core/backdrop.js';
 import { loadMask } from '../core/mask.js';
-import { screenToNDC, pickAnchorPlane, localToMarkerUV } from '../core/anchorPick.js';
+import { screenToNDC, pickAnchorPlane, localToMarkerUV, localToMeshUV } from '../core/anchorPick.js';
+import { createPaintStroke, meshUVToMarkerUV, markerPreviewTransform } from '../core/paintInput.js';
 import { toPreviewUV } from '../core/previewUv.js';
 import { getJSON, postJSON } from '../core/api.js';
 import { bindPointer } from '../core/pointer.js';
@@ -56,7 +57,7 @@ const markerUv = new THREE.Vector2();
 
 const STATUS = {
   PLACE: 'Drag, scale, and rotate the silhouette.',
-  PAINT: 'Paint on the preview. Use the eyedropper to pick marker colours.',
+  PAINT: 'Paint on AR or preview. Eyedropper picks the marker background.',
   REVIEW: 'Compare it with the real marker, then save.',
 };
 
@@ -122,12 +123,21 @@ async function boot() {
     );
   }
 
+  let arGesture = null;
+  let stroke;
   const session = createArSession({
     container: $('ar'),
     mindUrl: marker.mindUrl,
     filter: filterFromSearch(location.search),
-    onFound: () => setStatus('Marker found.'),
-    onLost: () => setStatus('Point the camera at the marker.'),
+    onFound: () => {
+      $('hud-restore').textContent = 'Show Painting HUD';
+      setStatus('Marker found.');
+    },
+    onLost: () => {
+      arGesture = null; stroke?.end('ar'); placement.end();
+      $('hud-restore').textContent = 'Show Painting HUD · Tracking lost';
+      setStatus('Tracking lost. AR stroke stopped; keep painting in preview.');
+    },
   });
 
   // Fire-and-forget: thumbnail decoding must never delay first paint. The row
@@ -150,12 +160,15 @@ async function boot() {
     requestPreviewRedraw();
   });
 
+  stroke = createPaintStroke(brush, (u, v) => u >= 0 && u <= 1 && v >= 0 && v <= 1 && mask.isBody(u, v));
+
   // --- transform ------------------------------------------------------------
 
   function updateFit() {
     state.fits = placement.clamp();
     $('fit').textContent = state.fits ? '' : 'Too large to hide';
     $('lock').disabled = !state.fits;
+    requestPreviewRedraw();
   }
 
   function applyTransform() {
@@ -288,6 +301,7 @@ async function boot() {
   // --- tool -----------------------------------------------------------------
 
   function setTool(tool) {
+    stroke.end(); arGesture = null;
     state.tool = canEyedrop ? tool : 'BRUSH';
     $('tool').setAttribute('aria-pressed', String(state.tool === 'EYEDROPPER'));
   }
@@ -301,7 +315,11 @@ async function boot() {
     const p = hit(event);
     if (!p) return;
     localToMarkerUV(p, marker.aspect, markerUv);
-    const color = sampler.sample(markerUv.x, markerUv.y);
+    pickColor(markerUv);
+  }
+
+  function pickColor(uv) {
+    const color = sampler?.sample(uv.x, uv.y);
     if (!color) {
       setStatus('Tap inside the marker image — colour unchanged.');
       return;
@@ -313,11 +331,7 @@ async function boot() {
   }
 
   // --- preview ----------------------------------------------------------------
-  // The preview canvas is mesh-UV space (512², square, upright): a masked blit of
-  // the paint canvas — white fill, then the paint, then clipped to the pose's
-  // shape via destination-in with a per-pose alpha mask. Composited offscreen
-  // first so the visible canvas never shows a white-only mid-composite frame.
-
+  // Upright model UVs with the source marker inverse-transformed underneath.
   const previewCanvas = $('paint-preview');
   let maskAlphaImg = null;
   let maskAlphaPose = null;
@@ -378,7 +392,18 @@ async function boot() {
     pctx2.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
     pctx2.fillStyle = '#ffffff';
     pctx2.fillRect(0, 0, previewCanvas.width, previewCanvas.height);
+    if (sampler?.image) {
+      const image = sampler.image;
+      pctx2.save();
+      pctx2.setTransform(...markerPreviewTransform(silhouette.mesh, marker.aspect,
+        previewCanvas.width, previewCanvas.height, image.naturalWidth, image.naturalHeight));
+      pctx2.drawImage(image, 0, 0);
+      pctx2.restore();
+    }
+    pctx2.save();
+    pctx2.globalAlpha = Number($('model-opacity').value) / 100;
     pctx2.drawImage(offscreenBody, 0, 0, previewCanvas.width, previewCanvas.height);
+    pctx2.restore();
   }
 
   function requestPreviewRedraw() {
@@ -402,65 +427,100 @@ async function boot() {
     requestPreviewRedraw();
   }
 
-  window.addEventListener('resize', sizePreviewCanvas);
+  window.addEventListener('resize', () => { endInputs(); sizePreviewCanvas(); });
 
-  // The rect is read once per stroke, not once per sample: bindPointer replays
-  // every coalesced pointer sample through move(), and getBoundingClientRect()
-  // forces a synchronous layout each call. The panel cannot move mid-stroke —
-  // the page is position:fixed with no scrolling — so one read per stroke is exact.
   let previewRect = null;
-
+  let previewTool = null;
+  function previewUV(event) {
+    return toPreviewUV(event.clientX, event.clientY, previewRect, meshUv);
+  }
+  function endInputs() {
+    stroke.end(); arGesture = null; previewRect = null; previewTool = null;
+    placement.end();
+  }
   bindPointer(previewCanvas, {
     start(e) {
-      if (state.mode !== 'PAINT' || state.tool !== 'BRUSH') return;
+      if (state.mode !== 'PAINT') return;
       previewRect = previewCanvas.getBoundingClientRect();
-      toPreviewUV(e.clientX, e.clientY, previewRect, meshUv);
-      if (mask.isBody(meshUv.x, meshUv.y)) brush.start(meshUv);
+      previewTool = state.tool;
+      if (previewTool === 'BRUSH') stroke.begin('preview', previewUV(e));
     },
     move(e) {
-      if (!previewRect || state.mode !== 'PAINT' || state.tool !== 'BRUSH') return;
-      toPreviewUV(e.clientX, e.clientY, previewRect, meshUv);
-      if (meshUv.x >= 0 && meshUv.x <= 1 && meshUv.y >= 0 && meshUv.y <= 1) brush.move(meshUv);
+      if (!previewRect || state.mode !== 'PAINT' || previewTool !== 'BRUSH' || state.tool !== previewTool) return;
+      stroke.move('preview', previewUV(e));
     },
-    end() { previewRect = null; brush.end(); },
+    end(e, info) {
+      if (previewRect && state.mode === 'PAINT' && previewTool === 'EYEDROPPER'
+          && state.tool === previewTool && info.tap) {
+        pickColor(meshUVToMarkerUV(previewUV(e), silhouette.mesh, marker.aspect, markerUv));
+      }
+      previewRect = null; previewTool = null; stroke.end('preview');
+    },
   });
-
-  // --- pointer --------------------------------------------------------------
 
   function hit(event) {
     screenToNDC(event, session.renderer.domElement, ndc);
     return pickAnchorPlane(ndc, session.camera, session.group, point);
   }
-
-  // Since painting moved to the preview, PLACE is the only mode that needs a ray
-  // — the eyedropper casts its own in eyedrop(). So the mode check comes BEFORE
-  // hit(), or every coalesced pointermove in PAINT/REVIEW pays for a raycast
-  // whose result is thrown away.
+  function arUV(event) {
+    const p = hit(event);
+    return p ? localToMeshUV(p, silhouette.mesh, meshUv) : null;
+  }
   bindPointer(session.renderer.domElement, {
     start(event) {
-      if (state.mode !== 'PLACE' || !session.visible) return;
-      const p = hit(event);
-      if (p) placement.start(p);
-    },
-
-    move(event) {
-      if (state.mode !== 'PLACE' || !session.visible) return;
-      const p = hit(event);
-      if (!p) return;
-      // null = "not dragging", which is not the same as "does not fit".
-      const fits = placement.move(p);
-      if (fits !== null) {
-        state.fits = fits;
-        updateFit();
+      if (!session.visible) return;
+      if (state.mode === 'PLACE') {
+        const p = hit(event);
+        if (p) placement.start(p);
+      } else if (state.mode === 'PAINT' && !state.hidden) {
+        arGesture = state.tool;
+        if (arGesture === 'BRUSH') stroke.begin('ar', arUV(event));
       }
     },
-
-    end(event, info) {
-      placement.end();
+    move(event) {
       if (!session.visible) return;
-      if (state.mode === 'PAINT' && state.tool === 'EYEDROPPER' && info?.tap) eyedrop(event);
+      if (state.mode === 'PAINT' && arGesture === 'BRUSH' && state.tool === arGesture) {
+        stroke.move('ar', arUV(event));
+      } else if (state.mode === 'PLACE') {
+        const p = hit(event);
+        if (p && placement.move(p) !== null) updateFit();
+      }
+    },
+    end(event, info) {
+      placement.end(); stroke.end('ar');
+      if (session.visible && state.mode === 'PAINT' && arGesture === 'EYEDROPPER'
+          && state.tool === arGesture && info.tap) eyedrop(event);
+      arGesture = null;
     },
   });
+
+  // Keep the same canvas and controls mounted so layout changes preserve work.
+  function expandPreview(expanded) {
+    endInputs();
+    $('hud').classList.toggle('preview-expanded', expanded);
+    $('preview-expand').setAttribute('aria-expanded', String(expanded));
+    $('preview-expand').textContent = expanded ? 'Shrink Preview' : 'Expand Preview';
+    sizePreviewCanvas();
+  }
+  $('preview-expand').addEventListener('click', () => expandPreview(!$('hud').classList.contains('preview-expanded')));
+  function hideHud(hidden) {
+    expandPreview(false);
+    $('hud').classList.toggle('hud-hidden', hidden);
+    $('hud-restore').hidden = !hidden;
+    if (hidden) $('hud-restore').focus();
+    else $('hud-hide').focus();
+  }
+  $('hud-hide').addEventListener('click', () => hideHud(true));
+  $('hud-restore').addEventListener('click', () => hideHud(false));
+  window.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    if ($('hud').classList.contains('hud-hidden')) hideHud(false);
+    else expandPreview(false);
+  });
+  window.addEventListener('blur', endInputs);
+  $('paint-preview').closest('.panel').addEventListener('scroll', endInputs);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) endInputs(); });
+  new ResizeObserver(sizePreviewCanvas).observe(previewCanvas);
 
   session.onFrame(() => {
     if (!state.dirty) return;
@@ -481,14 +541,15 @@ async function boot() {
     silhouette.material.alphaTest = fullAlphaTest * opacity;
     $('model-opacity-value').value = `${percent}%`;
     $('model-opacity').setAttribute('aria-valuetext', `${percent}%`);
+    requestPreviewRedraw();
   }
   $('model-opacity').addEventListener('input', applyPaintOpacity);
 
   $('lock').addEventListener('click', () => {
     if (state.fits) { setState('PAINT'); applyPaintOpacity(); sizePreviewCanvas(); }
   });
-  $('review').addEventListener('click', () => { setState('REVIEW'); applyPaintOpacity(); });
-  $('edit').addEventListener('click', () => { setState('PAINT'); applyPaintOpacity(); sizePreviewCanvas(); });
+  $('review').addEventListener('click', () => { expandPreview(false); endInputs(); setState('REVIEW'); applyPaintOpacity(); });
+  $('edit').addEventListener('click', () => { state.hidden = false; silhouette.mesh.visible = true; $('peek').textContent = 'Hide silhouette'; setState('PAINT'); applyPaintOpacity(); sizePreviewCanvas(); });
   // Peek hides the silhouette but NOT the backdrop: the seeker sees the backdrop
   // too, so "what is left when the model goes away" is the right comparison.
   $('peek').addEventListener('click', () => {
