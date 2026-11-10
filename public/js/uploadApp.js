@@ -1,4 +1,5 @@
 import { extractPalette, gridPalette } from './core/palette.js';
+import { adminHeaders, forgetAdminToken } from './core/adminToken.js';
 import { MASK_RES } from './core/maskNormalize.js';
 import { normalizeMaskFile } from './core/maskFile.js';
 
@@ -108,9 +109,13 @@ async function prepareImage(file) {
   }
 }
 
-async function request(url, options) {
-  const response = await fetch(url, options);
+// The upload page is staff-only: every write carries the admin token, and a
+// 401 forgets it so the next attempt asks again.
+async function request(url, options = {}) {
+  const write = (options.method || 'GET').toUpperCase() !== 'GET';
+  const response = await fetch(url, write ? { ...options, headers: { ...options.headers, ...adminHeaders() } } : options);
   if (response.ok) return response.status === 204 ? null : response.json();
+  if (write && response.status === 401) forgetAdminToken();
   const body = await response.json().catch(() => null);
   throw new Error(body?.error || `Request failed (${response.status})`);
 }

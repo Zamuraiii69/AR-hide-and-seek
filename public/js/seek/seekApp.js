@@ -22,6 +22,7 @@ import {
   screenToNDC, pickAnchorPlane, pickHitItem, localToMarkerUV, cameraDistance,
 } from '../core/anchorPick.js';
 import { getJSON, postJSON } from '../core/api.js';
+import { wireBackToMap } from '../campaignEntry.js';
 import { bindPointer } from '../core/pointer.js';
 import { loadMarkerImage } from '../core/markerSampler.js';
 import { createDistanceGate } from '../core/distanceGate.js';
@@ -231,6 +232,7 @@ async function boot() {
 
   async function finish() {
     setState('RESULT');
+    wireBackToMap($('back-to-map'));
     // The frame loop stops updating the gate outside HUNTING, so drop it here
     // rather than leaving an overlay nobody can clear.
     if (gate.reset()) applyGate(false);

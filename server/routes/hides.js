@@ -1,4 +1,5 @@
 const express = require('express');
+const { requireAdmin } = require('../adminGate');
 const { stmt, tx } = require('../db');
 const storage = require('../storage');
 const { MAX_TAPS } = require('../gameRules');
@@ -18,7 +19,7 @@ function validTransform(value) {
   return transform;
 }
 
-router.post('/', (req, res, next) => {
+router.post('/', requireAdmin, (req, res, next) => {
   const { markerId, hiderName, silhouetteId, transform, paintDataUrl } = req.body || {};
   const id = Number(markerId);
   const marker = stmt.markers.byId.get(id);
