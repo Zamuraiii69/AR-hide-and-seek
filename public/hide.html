@@ -28,10 +28,35 @@
     #paint-preview { width:100%; aspect-ratio:1; background:#fff; border:1px solid #e2e3df; border-radius:6px; display:block; }
     [data-mode=PLACE] .paint-only, [data-mode=PLACE] .review-only, [data-mode=PAINT] .place-only, [data-mode=PAINT] .review-only, [data-mode=REVIEW] .place-only, [data-mode=REVIEW] .paint-only { display:none; }
     #share { color:#16181a; display:grid; gap:8px; } #share p { margin:0; } #share input { width:100%; min-height:38px; border:1px solid #d2d4cf; border-radius:4px; background:#ffffff; color:#16181a; padding:7px 9px; } #share a { color:#b23718; } #share .share-status { color:#5f6870; font-size:13px; min-height:1.3em; } .spinner { width:16px; height:16px; border:2px solid rgba(22,24,26,.22); border-top-color:#16181a; border-radius:50%; animation:spin .75s linear infinite; } .hidden { display:none; } @keyframes spin { to { transform:rotate(360deg) } }
+    #hud { z-index:10; gap:8px; padding-top:max(10px,env(safe-area-inset-top)); }
+    .panel { max-height:calc(100dvh - 90px); overflow:auto; }
+    #tool { width:44px; height:44px; min-height:44px; }
+    #tool::before { inset:13px; }
+    #preview-expand { width:100%; min-height:44px; }
+    #hud.hud-hidden { display:none; }
+    #hud-restore { position:fixed; z-index:20; top:max(12px,env(safe-area-inset-top)); right:12px; max-width:90vw; }
+    #hud-restore[hidden] { display:none; }
+    #hud.preview-expanded { background:#f3f3f1; }
+    .preview-expanded .panel { width:100%; flex:1; min-height:0; max-height:none; }
+    .preview-expanded .paint-only { grid-template-columns:minmax(150px,220px) minmax(0,1fr); height:100%; }
+    .preview-expanded .preview-col { align-content:center; justify-items:center; }
+    .preview-expanded #paint-preview { width:min(100%,calc(100dvh - 210px)); }
+    .preview-expanded #preview-expand { width:auto; }
+    @media (max-width:540px) {
+      #hud { padding:8px; } .top { gap:6px; padding:7px; font-size:12px; }
+      .top button { padding:0 8px; font-size:12px; }
+      .paint-only { gap:9px; } .panel { padding:9px; }
+      .eyedrop-row { gap:8px; flex-wrap:wrap; }
+      .preview-expanded .paint-only { display:flex; flex-direction:column-reverse; height:auto; }
+      .preview-expanded #paint-preview { width:min(100%,calc(55dvh - 50px)); }
+      .preview-expanded .paint-col:not(.preview-col) { grid-template-columns:1fr 1fr; gap:6px 12px; }
+      .preview-expanded #palette { grid-column:1 / -1; }
+      .preview-expanded #palette-note:empty { display:none; }
+    }
   </style>
 </head>
 <body><div id="ar"></div><div id="hud" data-mode="PLACE">
-  <div class="top"><span id="spinner" class="spinner hidden"></span><span id="status">Preparing marker…</span><button id="start" type="button" disabled>Start camera</button></div>
+  <div class="top"><span id="spinner" class="spinner hidden"></span><span id="status" role="status">Preparing marker…</span><button id="start" type="button" disabled>Start camera</button><button id="hud-hide" class="secondary" type="button">Hide HUD</button></div>
   <section class="panel">
     <div class="place-only place-grid"><span id="pose-row-label" class="row-label">Pose</span><div id="pose-row" class="pose-row"><!-- built in JS, one button per marker.poses entry --></div><label class="stacked" for="scale">Scale</label><input id="scale" type="range" min="0.08" max="1.2" step="0.01" value="0.30"><label class="stacked" for="rotate">Rotate</label><input id="rotate" type="range" min="-180" max="180" step="1" value="0"><button id="lock" type="button">Lock Position</button><span id="fit"></span></div>
     <div class="paint-only">
@@ -45,12 +70,13 @@
         <div class="eyedrop-row"><div><span id="tool-label" class="ctl-label">Eyedropper</span><div class="eyedrop-pair"><button id="tool" type="button" aria-pressed="false" aria-label="Eyedropper"></button><span id="current-color" aria-hidden="true"></span></div></div><div><label class="stacked" for="brush-edge">Edge</label><select id="brush-edge"><option value="hard">Hard</option><option value="soft">Soft</option></select></div></div>
         <button id="review" type="button">Review</button>
       </div>
-      <div class="paint-col">
-        <h3 class="panel-h">Paint Here</h3>
-        <canvas id="paint-preview"></canvas>
+      <div class="paint-col preview-col">
+        <h3 class="panel-h">Paint Preview</h3>
+        <button id="preview-expand" class="secondary" type="button" aria-expanded="false" aria-controls="paint-preview">Expand Preview</button>
+        <canvas id="paint-preview" aria-label="Paint model or pick marker background colour"></canvas>
       </div>
     </div>
     <div class="review-only controls"><button id="peek" class="secondary" type="button">Hide silhouette</button><button id="edit" class="secondary" type="button">Edit paint</button><button id="save" type="button">Save hide</button></div>
     <div id="share"></div>
   </section>
-</div><script type="module" src="/js/hide/hideApp.js"></script></body></html>
+</div><button id="hud-restore" type="button" hidden>Show Painting HUD</button><script type="module" src="/js/hide/hideApp.js"></script></body></html>
