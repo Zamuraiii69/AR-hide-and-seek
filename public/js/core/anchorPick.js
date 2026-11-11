@@ -97,8 +97,9 @@ export function localToMeshUV(p, mesh, out) {
  */
 export function pickHitItem(p, items, tmpUv, tol = 0.03) {
   let winner = null;
+  // Found items stay in the race: a tap on a found hide must not fall through
+  // to one stacked underneath, or tapping one spot finds them all.
   for (const item of items) {
-    if (item.found) continue;
     localToMeshUV(p, item.silhouette.mesh, tmpUv);
     if (!item.mask.isBody(tmpUv.x, tmpUv.y, tol)) continue;
     if (!winner || item.silhouette.mesh.renderOrder > winner.silhouette.mesh.renderOrder) winner = item;

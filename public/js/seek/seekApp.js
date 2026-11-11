@@ -22,7 +22,8 @@ import {
   screenToNDC, pickAnchorPlane, pickHitItem, localToMarkerUV, cameraDistance,
 } from '../core/anchorPick.js';
 import { getJSON, postJSON } from '../core/api.js';
-import { wireBackToMap } from '../campaignEntry.js';
+import { resultDestination, wireBackToMap } from '../campaignEntry.js';
+import { getDemoContext } from '../demoContext.js';
 import { bindPointer } from '../core/pointer.js';
 import { loadMarkerImage } from '../core/markerSampler.js';
 import { createDistanceGate } from '../core/distanceGate.js';
@@ -35,6 +36,8 @@ const MAX_ITEMS = 8;              // ponytail: flat cap, paginate if markers eve
 const REVEAL_MS = 1500;
 const REVEAL_PULSES = 3;
 const HALO_GROW = 0.35;           // outline expands to 1.35× before fading
+const FOUND_FRAME = 1.12;         // a found hide keeps a black outline this much larger
+const RESULT_HOLD_MS = 1200;      // let "เจอแล้ว!" show before the reward screen
 const START_TIMEOUT_MS = 15000;
 
 const params = new URLSearchParams(location.search);
@@ -180,12 +183,24 @@ async function boot() {
     };
   }));
 
+  // After the pulse, a found hide keeps a black frame so the player can see
+  // which ones are done; a hide only revealed at the end (missed) fades out.
+  function holdFoundFrame(item) {
+    item.halo.material.color.set(0x000000);
+    item.halo.material.opacity = 0.9;
+    item.halo.position.copy(item.silhouette.mesh.position);
+    item.halo.rotation.z = item.silhouette.mesh.rotation.z;
+    item.halo.scale.set(item.silhouette.mesh.scale.x * FOUND_FRAME, item.silhouette.mesh.scale.y * FOUND_FRAME, 1);
+    item.halo.visible = true;
+  }
+
   function tickReveal(item, now) {
     if (!item.revealStart) return;
     const t = (now - item.revealStart) / REVEAL_MS;
     if (t >= 1) {
-      item.halo.visible = false;
       item.revealStart = 0;
+      if (item.found) holdFoundFrame(item);
+      else item.halo.visible = false;
       return;
     }
     const cycle = (t * REVEAL_PULSES) % 1;
@@ -232,7 +247,10 @@ async function boot() {
 
   async function finish() {
     setState('RESULT');
-    wireBackToMap($('back-to-map'));
+    const context = getDemoContext();
+    wireBackToMap($('back-to-map'), { context });
+    // A player from ARmap must not land on the staff home (Upload marker).
+    if (context) $('home-link').hidden = true;
     // The frame loop stops updating the gate outside HUNTING, so drop it here
     // rather than leaving an overlay nobody can clear.
     if (gate.reset()) applyGate(false);
@@ -268,6 +286,10 @@ async function boot() {
     setText($('result-stats'), failed
       ? `บันทึกผลบางส่วนไม่สำเร็จ: ${failed.reason.message}`
       : `บันทึกผลครบ ${items.length} ที่ซ่อนแล้ว`);
+
+    // Found them all from an ARmap portal: show the coins, like every other AR content.
+    const next = resultDestination({ allFound, context });
+    if (next) window.setTimeout(() => location.replace(next), RESULT_HOLD_MS);
   }
 
   function guess(event) {
@@ -288,6 +310,15 @@ async function boot() {
       return;
     }
     const hitItem = pickHitItem(p, items, meshUv, HIT_TOL);
+    // Tapping a hide that is already found is free and finds nothing new —
+    // otherwise hides stacked on one spot all fall to the same tap.
+    if (hitItem?.found) {
+      setStatus('ตัวนี้เจอแล้ว — ลองหาตัวอื่น');
+      window.setTimeout(() => {
+        if (state.mode === 'HUNTING') setStatus(STATUS.HUNTING);
+      }, 1200);
+      return;
+    }
 
     state.taps.push({ u: markerUv.x, v: markerUv.y, hitId: hitItem ? hitItem.id : null });
     renderGuesses();

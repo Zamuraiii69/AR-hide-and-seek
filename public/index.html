@@ -190,7 +190,21 @@
     header .button { width: 100%; }
     .toolbar a, .toolbar button { flex: 1; }
   }
+  /* A player arriving from an ARmap portal must never see the staff page
+     (Upload marker, Refresh) while the game resolves the marker. */
+  html.campaign-entry header, html.campaign-entry .notice, html.campaign-entry .toolbar { display: none; }
 </style>
+<script>
+  // campaign-entry-flag — runs before the body paints. Mirrors campaignMarkerSlug:
+  // the marker is in the query, or still packed inside liff.state.
+  (function () {
+    var q = new URLSearchParams(location.search);
+    var state = q.get('liff.state') || '';
+    if (q.get('marker') || new URLSearchParams(state.slice(state.indexOf('?') + 1)).get('marker')) {
+      document.documentElement.classList.add('campaign-entry');
+    }
+  })();
+</script>
 </head>
 <body>
 <main>
@@ -212,7 +226,7 @@
   </div>
 
   <section id="markers" aria-live="polite">
-    <div class="message">Loading markers...</div>
+    <div class="message">กำลังโหลด…</div>
   </section>
 </main>
 

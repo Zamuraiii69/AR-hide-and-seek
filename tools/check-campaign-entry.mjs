@@ -69,15 +69,51 @@ result = await enterCampaign('flaky', { fetchImpl: fakeFetch({ '/api/markers/by-
 check('a server error asks to retry', !result.ok && result.message === 'โหลดเกมไม่สำเร็จ กรุณาลองใหม่');
 
 // --- back to ARmap -----------------------------------------------------------
-const { wireBackToMap } = await import('../public/js/campaignEntry.js');
+// closeWindow() closed the whole LIFF browser and dropped the player in the
+// LINE OA chat. Going back means opening ARmap's map, not closing the game.
+const { wireBackToMap, ARMAP_MAP_URL, resultDestination } = await import('../public/js/campaignEntry.js');
+const ctx = { source: 'linearmap', claim: 'earned', reward: 15, treasure: 'Wall 7' };
 let closed = 0;
+let went = null;
 const button = { hidden: true, onclick: null };
-wireBackToMap(button, { isInClient: () => true, closeWindow: () => { closed++; } });
+wireBackToMap(button, { liff: { isInClient: () => true, closeWindow: () => { closed++; } }, context: ctx, navigate: (url) => { went = url; } });
 button.onclick?.();
-check('inside LINE the back button shows and closes the game window', button.hidden === false && closed === 1);
+check('inside LINE the back button shows and opens the ARmap map', button.hidden === false && went === ARMAP_MAP_URL && closed === 0, went);
+check('the ARmap map URL is a bare liff.line.me link to /map', /^https:\/\/liff\.line\.me\/[0-9]+-[A-Za-z0-9]+\/map$/.test(ARMAP_MAP_URL), ARMAP_MAP_URL);
 const outside = { hidden: true, onclick: null };
-wireBackToMap(outside, { isInClient: () => false, closeWindow: () => { closed++; } });
+wireBackToMap(outside, { liff: { isInClient: () => false }, context: ctx, navigate: () => {} });
 check('outside LINE the back button stays hidden', outside.hidden === true && outside.onclick === null);
+const standalone = { hidden: true, onclick: null };
+wireBackToMap(standalone, { liff: { isInClient: () => true }, context: null, navigate: () => {} });
+check('a standalone round (no ARmap context) has no back-to-map button', standalone.hidden === true && standalone.onclick === null);
+
+// --- reward screen after a found-all round ------------------------------------
+check('finding every hide in an ARmap round goes to the reward screen', resultDestination({ allFound: true, context: ctx }) === '/reward.html');
+check('running out of taps stays on the result panel', resultDestination({ allFound: false, context: ctx }) === null);
+check('a standalone round never shows the ARmap reward', resultDestination({ allFound: true, context: null }) === null);
+
+// --- campaign entry hides the staff page before anything paints ----------------
+// The staff header (Upload marker) used to show while LIFF and two API calls
+// ran. An inline script flags the page as a campaign entry before the body
+// paints, and CSS hides the staff chrome.
+{
+  const vm = await import('node:vm');
+  const html = fs.readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
+  const inline = html.match(/<script>(\s*\/\/ campaign-entry-flag[\s\S]*?)<\/script>/);
+  check('index.html carries the campaign-entry flag script', Boolean(inline));
+  const flagged = (search) => {
+    const classes = new Set();
+    vm.runInNewContext(inline ? inline[1] : '', {
+      location: { search }, URLSearchParams,
+      document: { documentElement: { classList: { add: (c) => classes.add(c) } } },
+    });
+    return classes.has('campaign-entry');
+  };
+  check('a ?marker= launch is flagged', flagged('?source=linearmap&marker=soi-maew-01'));
+  check('a liff.state launch is flagged', flagged(packed));
+  check('the staff page is not flagged', !flagged('') && !flagged('?source=linearmap'));
+  check('CSS hides the staff chrome on a campaign entry', /html\.campaign-entry header/.test(html));
+}
 const noSdk = { hidden: true, onclick: null };
 wireBackToMap(noSdk, undefined);
 check('without the LIFF SDK the back button stays hidden', noSdk.hidden === true);
