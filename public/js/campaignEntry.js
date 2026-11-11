@@ -26,14 +26,23 @@ export function campaignMarkerSlug(search) {
   return slug && slug.length <= 64 && SLUG_RE.test(slug) ? slug : null;
 }
 
-/**
- * Inside LINE the game is a LIFF window opened from ARmap; closing it returns
- * the player to the map. isInClient/closeWindow work before liff.init.
- */
-export function wireBackToMap(button, liff = globalThis.liff) {
-  if (!button || !liff?.isInClient?.()) return;
+// ARmap's own LIFF map. ARmap opens the game by navigating to the game's LIFF
+// URL inside the same LIFF browser, so closeWindow() closes everything and
+// drops the player in the LINE OA chat — going back means opening ARmap again.
+export const ARMAP_MAP_URL = 'https://liff.line.me/2010387907-Nixyjowy/map';
+
+/** Back-to-map only for a round ARmap launched, and only inside LINE. */
+export function wireBackToMap(button, {
+  liff = globalThis.liff, context = null, navigate = (url) => globalThis.location.assign(url),
+} = {}) {
+  if (!button || !context || !liff?.isInClient?.()) return;
   button.hidden = false;
-  button.onclick = () => liff.closeWindow();
+  button.onclick = () => navigate(ARMAP_MAP_URL);
+}
+
+/** Where a finished round goes next: the ARmap reward screen, or stay put. */
+export function resultDestination({ allFound, context }) {
+  return allFound && context ? '/reward.html' : null;
 }
 
 export async function enterCampaign(slug, { fetchImpl = globalThis.fetch, replace = (url) => globalThis.location.replace(url) } = {}) {

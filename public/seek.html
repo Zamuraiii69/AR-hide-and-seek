@@ -30,6 +30,7 @@
     @keyframes ripple { to { transform:scale(4.5); opacity:0; } }
     [data-mode=LOADING] .panel, [data-mode=READY] .panel { display:none; }
     [data-mode=HUNTING] .result-only, [data-mode=RESULT] .hunt-only { display:none; }
+    [hidden] { display:none !important; } /* button/a.button set display, which beats the UA hidden rule */
     .spinner { width:16px; height:16px; border:2px solid rgba(22,24,26,.22); border-top-color:#16181a; border-radius:50%; animation:spin .75s linear infinite; } .hidden { display:none; } @keyframes spin { to { transform:rotate(360deg) } }
   </style>
 </head>
@@ -42,7 +43,7 @@
       <h2 id="result-title"></h2>
       <p id="result-note"></p>
       <p id="result-stats"></p>
-      <div class="controls"><button id="back-to-map" type="button" hidden>กลับไปที่แผนที่</button><button id="again" class="secondary" type="button">ลองใหม่</button><a id="stats-link" class="button secondary" href="/stats.html">สถิติ</a><a class="button" href="/">หน้าแรก</a></div>
+      <div class="controls"><button id="back-to-map" type="button" hidden>กลับไปที่แผนที่</button><button id="again" class="secondary" type="button">ลองใหม่</button><a id="stats-link" class="button secondary" href="/stats.html">สถิติ</a><a id="home-link" class="button" href="/">หน้าแรก</a></div>
     </div>
   </section>
 </div><script src="https://static.line-scdn.net/liff/edge/versions/2.31.0/sdk.js" charset="utf-8"></script><script type="module" src="/js/seek/seekApp.js"></script></body></html>

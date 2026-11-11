@@ -151,12 +151,22 @@ check('pickHitItem: outside every body is a miss',
   const found = fakeItem({ renderOrder: 12, found: true });
   const under = fakeItem({ renderOrder: 10 });
   const winner = pickHitItem(origin, [found, under], tmpUv);
-  check('pickHitItem: a found item is skipped, falls through to the one underneath',
-    winner === under);
+  // Several hides stacked on one spot let a player "find" them all by tapping
+  // the same place again and again. The top-most item under the tap wins even
+  // when it is already found; the caller treats that as "already found".
+  check('pickHitItem: a found item on top blocks the stacked one underneath',
+    winner === found);
 }
 
-check('pickHitItem: every item found → miss, not a crash',
-  pickHitItem(origin, [fakeItem({ renderOrder: 10, found: true })], tmpUv) === null);
+check('pickHitItem: tapping a found item returns it (already found), not a miss',
+  pickHitItem(origin, [fakeItem({ renderOrder: 10, found: true })], tmpUv)?.found === true);
+
+{
+  const foundUnder = fakeItem({ renderOrder: 10, found: true });
+  const top = fakeItem({ renderOrder: 12 });
+  check('pickHitItem: an unfound item on top of a found one is still findable',
+    pickHitItem(origin, [foundUnder, top], tmpUv) === top);
+}
 
 // --- backdrop --------------------------------------------------------------
 // colorSpace is the one that fails silently: wrong value, every colour shifts,
