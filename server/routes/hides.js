@@ -35,6 +35,15 @@ router.post('/', requireAdmin, (req, res, next) => {
   const t = validTransform(transform);
   if (!t) return fail(res, 400, 'transform x, y, rot, w, h must be finite; w and h must be between 0 and 2');
 
+  // Pressing Save twice re-posts the exact same transform. A stacked copy is
+  // invisible to the seeker and can never be tapped, so the round can't end.
+  // ponytail: exact repeats only; partial overlaps are the hider's call.
+  const same = (a, b) => Math.abs(a - b) < 1e-6;
+  if (stmt.hides.byMarker.all(id).some((h) => same(h.pos_x, t.x) && same(h.pos_y, t.y)
+    && same(h.rot_z, t.rot) && same(h.size_w, t.w) && same(h.size_h, t.h))) {
+    return fail(res, 409, 'duplicate hide');
+  }
+
   let paintBuffer;
   try {
     paintBuffer = storage.pngBufferFromDataUrl(paintDataUrl);
