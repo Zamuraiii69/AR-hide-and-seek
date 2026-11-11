@@ -558,7 +558,21 @@ async function boot() {
     $('peek').textContent = state.hidden ? 'Show silhouette' : 'Hide silhouette';
   });
 
+  // A saved hide stays on screen, so a second press used to post the same
+  // transform again (stacked, untappable copies). Save stays off after a save
+  // until the hider touches anything else; the server refuses exact repeats too.
+  const SAVE_LABEL = $('save').textContent;
+  let saved = false;
+  const rearm = (event) => {
+    if (!saved || event.target.closest?.('#save, #share')) return;
+    saved = false;
+    $('save').disabled = false;
+    $('save').textContent = SAVE_LABEL;
+  };
+  for (const type of ['pointerup', 'input', 'change']) document.addEventListener(type, rearm, true);
+
   $('save').addEventListener('click', async () => {
+    if (saved) return;
     setBusy($('save'), true);
     setText($('share'), '');
     try {
@@ -637,10 +651,17 @@ async function boot() {
         }
       });
       $('share').replaceChildren(heading, linkText, actions, shareStatus);
+      saved = true;
     } catch (error) {
-      setText($('share'), error.message);
+      setText($('share'), error.status === 409
+        ? 'ที่ซ่อนนี้บันทึกไปแล้ว — ขยับหรือวางใหม่ก่อนบันทึกอีกตัว'
+        : error.message);
     } finally {
       setBusy($('save'), false);
+      if (saved) {
+        $('save').disabled = true;
+        $('save').textContent = 'บันทึกแล้ว ✓';
+      }
     }
   });
 
